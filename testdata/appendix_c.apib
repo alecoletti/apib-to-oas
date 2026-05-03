@@ -1,0 +1,142 @@
+FORMAT: 1A
+VERSION: 2.4.0
+SUMMARY: Reference articles API.
+LICENSE: Apache 2.0
+LICENSE-ID: Apache-2.0
+LICENSE-URL: https://example.com/LICENSE
+HOST: https://api.example.com - Production
+HOST: https://staging.example.com - Staging
+SECURITY: BearerAuth
+WEBHOOK_GROUPS: Article Events
+ROOT.Internal-Owners: platform-team
+Retry-Policy: aggressive
+
+# Articles API
+
+A small example exercising every Blueprint+ Tier-A feature.
+
+# Group Articles
+
+CRUD over the article corpus.
+
++ Meta
+    + Kind: nav
+    + Owner-Team: editorial
+
+## Article Collection [/articles{?q,limit}]
+
++ Parameters
+    + q: news (string, optional) - Free-text query.
+    + limit: 20 (number, optional) - Page size (defaults to 20).
+
+### List Articles [GET]
+
++ Meta
+    + OperationId: listArticles
+    + Tags: Articles, Public
+    + Idempotent: true
+
++ Parameters
+    + traceId: abc123 (string, optional) - `[header:X-Trace-Id]` Trace id.
+    + sessionId (string, optional) - `[cookie]` Session.
+
++ Request Minimal (application/json)
+    + Body
+
+            {}
+
++ Request With Filters (application/json)
+    + Body
+
+            { "q": "news", "limit": 10 }
+
++ Response 200 (application/json)
+    Page of articles.
+
+    + Attributes (array[Article])
+
+## Article [/articles/{id}]
+
++ Parameters
+    + id (string, required) - Article UUID.
+
+### Retrieve Article [GET]
+
++ Meta
+    + OperationId: getArticle
+    + Docs: https://docs.example.com/getArticle - Detailed guide
+
++ Response 200 (application/json)
+    + Attributes (Article)
+
++ Response 404 (application/json)
+    + Attributes (Error)
+
+### Replace Article [PUT]
+
++ Meta
+    + OperationId: replaceArticle
+    + Deprecated: true
+    + Tags: +Beta
+
++ Request (application/json)
+    + Attributes (Article)
+
++ Response 204
+
+# Group Article Events
+
+Server-pushed notifications when an article changes.
+
+## Article Created [/article.created]
+
+### Article Created [POST]
+
++ Meta
+    + OperationId: onArticleCreated
+    + Security:
+
++ Request (application/json)
+    + Attributes (Article)
+
++ Response 200
+
+# Data Structures
+
+## SecuritySchemes (object)
++ BearerAuth (object)
+    + type: http
+    + scheme: bearer
+    + bearerFormat: JWT
+    + description: `Short-lived JWT issued by /login.`
+
++ ApiKeyAuth (object)
+    + type: apiKey
+    + in: header
+    + name: `X-API-Key`
+
++ OAuth2 (object)
+    + type: oauth2
+    + flows (object)
+        + authorizationCode (object)
+            + authorizationUrl: https://auth.example.com/authorize
+            + tokenUrl: https://auth.example.com/token
+            + scopes (object)
+                + read: Read access.
+                + write: Write access.
+
+## Article (object)
++ id: `8c6e8f54-dc08-4e62-9a20-5e0c9e1c1234` (string, required) - Article UUID.
++ title: Hello (string, required)
++ subtitle (string, nullable)
++ published_at: `2024-01-15T10:00:00Z` (string, required)
++ status: draft (enum[string], required)
+    + draft - Authoring in progress.
+    + published - Live on the site.
+    + archived - Removed from indexes.
++ author_email: editor@example.com (string)
+
+## Error (object)
++ code: not_found (string, required)
++ message: Article not found (string, required)
+

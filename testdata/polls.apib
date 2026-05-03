@@ -1,0 +1,48 @@
+FORMAT: 1A
+HOST: https://polls.example.com
+
+# Polls API
+
+A simple API allowing consumers to view polls and vote in them.
+
+## Questions Collection [/questions]
+
+### List All Questions [GET]
+
+Returns every question.
+
++ Response 200 (application/json)
+
+    + Body
+
+            [
+              { "question": "Favourite programming language?" }
+            ]
+
+### Create a New Question [POST]
+
++ Request (application/json)
+
+    + Body
+
+            { "question": "Favourite editor?" }
+
++ Response 201 (application/json)
+
+    + Body
+
+            { "question": "Favourite editor?" }
+
+## Question [/questions/{id}]
+
++ Parameters
+    + id (number) - Numeric id
+
+### View a Question [GET]
+
++ Response 200 (application/json)
+
+    + Body
+
+            { "question": "Favourite programming language?" }
+

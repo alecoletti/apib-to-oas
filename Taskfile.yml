@@ -1,0 +1,135 @@
+version: '3'
+
+# Task runner for apib-to-oas (https://taskfile.dev). Replaces the previous Makefile.
+# Install with `brew install go-task` or see https://taskfile.dev/installation.
+
+env:
+  CGO_ENABLED: '0'
+
+vars:
+  BIN: apib-to-oas
+  PKG: ./cmd/apib-to-oas
+  REGISTRY: '{{.REGISTRY | default "ghcr.io/alecoletti"}}'
+  IMAGE: '{{.REGISTRY | default "ghcr.io/alecoletti"}}/{{.BIN | default "apib-to-oas"}}'
+  DOCKER_TAG: '{{.DOCKER_TAG | default "dev"}}'
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo unknown
+  DATE:
+    sh: date -u +%Y-%m-%dT%H:%M:%SZ
+  LDFLAGS: >-
+    -s -w
+    -X main.version={{.VERSION}}
+    -X main.commit={{.COMMIT}}
+    -X main.date={{.DATE}}
+
+tasks:
+  default:
+    desc: Show available tasks.
+    cmds:
+      - task --list
+
+  help:
+    desc: Show available tasks.
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the apib-to-oas binary into bin/.
+    cmds:
+      - go build -trimpath -ldflags "{{.LDFLAGS}}" -o bin/{{.BIN}} {{.PKG}}
+
+  test:
+    desc: Run the test suite.
+    cmds:
+      - go test ./...
+
+  vet:
+    desc: Run go vet.
+    cmds:
+      - go vet ./...
+
+  fmt:
+    desc: gofmt the repo.
+    cmds:
+      - gofmt -s -w .
+
+  run:
+    desc: 'Run apib-to-oas via `go run`. Pass extra args after `--` (e.g. `task run -- convert testdata/sample.apib`).'
+    cmds:
+      - go run {{.PKG}} {{.CLI_ARGS}}
+
+  clean:
+    desc: Remove build outputs.
+    cmds:
+      - rm -rf bin dist
+
+  # ---- Drafter binary management -------------------------------------
+
+  drafter:
+    desc: Rebuild drafter for the host platform (cmake + clang/gcc required).
+    cmds:
+      - scripts/build-drafter.sh
+
+  drafter:darwin:
+    desc: Rebuild drafter for both macOS architectures (host must be macOS).
+    cmds:
+      - scripts/build-drafter.sh
+      - GOOS=darwin GOARCH=amd64 scripts/build-drafter.sh
+
+  drafter:linux:
+    desc: Rebuild drafter for both Linux architectures via Docker.
+    cmds:
+      - scripts/build-drafter.sh --linux-amd64-docker
+      - scripts/build-drafter.sh --linux-arm64-docker
+
+  drafter:all:
+    desc: Rebuild all four supported drafter binaries.
+    deps: [drafter:darwin, drafter:linux]
+
+  drafter:check:
+    desc: Verify all four embedded drafter binaries exist and are non-trivial.
+    cmds:
+      - |
+        missing=0
+        for t in darwin-amd64 darwin-arm64 linux-amd64 linux-arm64; do
+          if [ ! -x internal/drafter/bin/drafter-$t ]; then
+            echo "  MISSING: internal/drafter/bin/drafter-$t"; missing=1
+          else
+            sz=$(wc -c < internal/drafter/bin/drafter-$t)
+            if [ "$sz" -lt 200000 ]; then
+              echo "  TOO SMALL: drafter-$t ($sz bytes)"; missing=1
+            else
+              printf "  OK: drafter-%-13s %s bytes\n" "$t" "$sz"
+            fi
+          fi
+        done
+        exit $missing
+
+  # ---- Docker --------------------------------------------------------
+
+  docker:
+    desc: Build the Docker image locally as $IMAGE:$DOCKER_TAG.
+    cmds:
+      - >-
+        docker build
+        --build-arg VERSION={{.VERSION}}
+        --build-arg COMMIT={{.COMMIT}}
+        --build-arg DATE={{.DATE}}
+        -t {{.IMAGE}}:{{.DOCKER_TAG}} .
+
+  docker:run:
+    desc: Smoke-test the Docker image against testdata/sample.apib.
+    cmds:
+      - >-
+        docker run --rm -v "$PWD":/work -w /work
+        {{.IMAGE}}:{{.DOCKER_TAG}} convert testdata/sample.apib
+
+  # ---- Releasing -----------------------------------------------------
+
+  release:snapshot:
+    desc: Local goreleaser snapshot build (no publish).
+    cmds:
+      - goreleaser release --clean --snapshot --skip=publish,sign,docker
+

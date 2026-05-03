@@ -1,0 +1,28 @@
+FORMAT: 1A
+HOST: https://api.example.com - Production
+
+# Articles API
+
+# Group Articles
+
+## Article [/articles/{id}]
+
++ Parameters
+    + id: 8c6e... (string, required) - Article UUID.
+
+### Retrieve Article [GET]
+
++ Meta
+    + OperationId: getArticle
+    + Tags: Articles, Public
+    + Deprecated: false
+    + Docs: https://docs.example.com/getArticle
+    + Security: BearerAuth
+    + Idempotent: true
+
++ Response 200 (application/json)
+
+    + Body
+
+            {"id":"8c6e","title":"hi"}
+

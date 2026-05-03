@@ -1,0 +1,12 @@
+FORMAT: 1A
+HOST: https://api.example.com
+# Test API
+# Group X
+## Stuff [/stuff/{id}{?q}]
++ Parameters
+    + id: `8c6e` (string, required) - Path UUID.
+    + q: hi (string, optional) - Free-text query.
+    + traceId: abc123 (string, optional) - `[header:X-Trace-Id]` Distributed-trace id, sent on every request.
+    + sessionId: sess1 (string, optional) - `[cookie]` Authentication cookie.
+### Get Stuff [GET]
++ Response 200

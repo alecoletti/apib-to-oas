@@ -1,0 +1,274 @@
+{
+  "element": "parseResult",
+  "content": [
+    {
+      "element": "category",
+      "meta": {
+        "classes": {
+          "element": "array",
+          "content": [
+            {
+              "element": "string",
+              "content": "api"
+            }
+          ]
+        },
+        "title": {
+          "element": "string",
+          "content": ""
+        }
+      },
+      "content": [
+        {
+          "element": "category",
+          "meta": {
+            "classes": {
+              "element": "array",
+              "content": [
+                {
+                  "element": "string",
+                  "content": "resourceGroup"
+                }
+              ]
+            },
+            "title": {
+              "element": "string",
+              "content": "Example"
+            }
+          },
+          "content": [
+            {
+              "element": "resource",
+              "meta": {
+                "title": {
+                  "element": "string",
+                  "content": ""
+                }
+              },
+              "attributes": {
+                "href": {
+                  "element": "string",
+                  "content": "/"
+                }
+              },
+              "content": [
+                {
+                  "element": "transition",
+                  "meta": {
+                    "title": {
+                      "element": "string",
+                      "content": ""
+                    }
+                  },
+                  "content": [
+                    {
+                      "element": "httpTransaction",
+                      "content": [
+                        {
+                          "element": "httpRequest",
+                          "attributes": {
+                            "method": {
+                              "element": "string",
+                              "content": "GET"
+                            }
+                          },
+                          "content": []
+                        },
+                        {
+                          "element": "httpResponse",
+                          "attributes": {
+                            "statusCode": {
+                              "element": "string",
+                              "content": "200"
+                            },
+                            "headers": {
+                              "element": "httpHeaders",
+                              "content": [
+                                {
+                                  "element": "member",
+                                  "content": {
+                                    "key": {
+                                      "element": "string",
+                                      "content": "Content-Type"
+                                    },
+                                    "value": {
+                                      "element": "string",
+                                      "content": "application/json"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          },
+                          "content": [
+                            {
+                              "element": "dataStructure",
+                              "content": {
+                                "element": "object",
+                                "content": [
+                                  {
+                                    "element": "member",
+                                    "content": {
+                                      "key": {
+                                        "element": "string",
+                                        "content": "o1"
+                                      },
+                                      "value": {
+                                        "element": "object",
+                                        "attributes": {
+                                          "samples": {
+                                            "element": "array",
+                                            "content": [
+                                              {
+                                                "element": "object",
+                                                "content": [
+                                                  {
+                                                    "element": "member",
+                                                    "content": {
+                                                      "key": {
+                                                        "element": "string",
+                                                        "content": "p1"
+                                                      },
+                                                      "value": {
+                                                        "element": "string",
+                                                        "content": "x"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "element": "member",
+                                                    "content": {
+                                                      "key": {
+                                                        "element": "string",
+                                                        "content": "p2"
+                                                      },
+                                                      "value": {
+                                                        "element": "string",
+                                                        "content": "y"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "element": "object",
+                                                "content": [
+                                                  {
+                                                    "element": "member",
+                                                    "content": {
+                                                      "key": {
+                                                        "element": "string",
+                                                        "content": "p1"
+                                                      },
+                                                      "value": {
+                                                        "element": "string",
+                                                        "content": "1"
+                                                      }
+                                                    }
+                                                  },
+                                                  {
+                                                    "element": "member",
+                                                    "content": {
+                                                      "key": {
+                                                        "element": "string",
+                                                        "content": "p2"
+                                                      },
+                                                      "value": {
+                                                        "element": "string",
+                                                        "content": "2"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        },
+                                        "content": [
+                                          {
+                                            "element": "member",
+                                            "content": {
+                                              "key": {
+                                                "element": "string",
+                                                "content": "p1"
+                                              },
+                                              "value": {
+                                                "element": "string"
+                                              }
+                                            }
+                                          },
+                                          {
+                                            "element": "member",
+                                            "content": {
+                                              "key": {
+                                                "element": "string",
+                                                "content": "p2"
+                                              },
+                                              "value": {
+                                                "element": "string"
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "element": "asset",
+                              "meta": {
+                                "classes": {
+                                  "element": "array",
+                                  "content": [
+                                    {
+                                      "element": "string",
+                                      "content": "messageBody"
+                                    }
+                                  ]
+                                }
+                              },
+                              "attributes": {
+                                "contentType": {
+                                  "element": "string",
+                                  "content": "application/json"
+                                }
+                              },
+                              "content": "{\n  \"o1\": {\n    \"p1\": \"\",\n    \"p2\": \"\"\n  }\n}"
+                            },
+                            {
+                              "element": "asset",
+                              "meta": {
+                                "classes": {
+                                  "element": "array",
+                                  "content": [
+                                    {
+                                      "element": "string",
+                                      "content": "messageBodySchema"
+                                    }
+                                  ]
+                                }
+                              },
+                              "attributes": {
+                                "contentType": {
+                                  "element": "string",
+                                  "content": "application/schema+json"
+                                }
+                              },
+                              "content": "{\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"type\": \"object\",\n  \"properties\": {\n    \"o1\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"p1\": {\n          \"type\": \"string\"\n        },\n        \"p2\": {\n          \"type\": \"string\"\n        }\n      }\n    }\n  }\n}"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+
+# Data Structures       
+
+# Enum behavior (object)
+- size1: L (enum) - C: 'L', E: ['L']
+
+- size2: S, M, L, XL (enum) - E: ['S','M','L','XL']
+
+- size3: L (enum) - C: 'L', E: ['L','S','M','XL'] - ignore "inline" duplicity "L"
+    - S
+    - M
+    - L
+    - XL
+
+- size4: L (enum) - C: 'L', E: ['L' , [ 'S, M, L, XL' ]] - FIXME: from snowcrash we receive "array of strings" should be string "S, M, L, XL"
+    - S, M, L, XL
+
+- size5: *L* (enum) - S: ['L'], E: ['L']
+
+- size6: L (enum, sample) - S: ['L'], E: ['L']
+
+- size7 (enum) - E: ['S','M','L','XL','XXL','XXXL']
+    - S
+    - M
+    - L
+    - XL
+
+    - items
+        - XXL
+        - XXXL
+
+- size8: S (enum) - C: 'S', E: ['S', 'T', 'U'] S: ['U']
+    - T
+
+    - sample
+        - U
+
+- size9: L (enum, sample) - E: ['M','N','L'], S: ['L'] 
+    - M
+    - N
+
+- size10: L (enum, sample) - E: ['M','N','L'], S: ['L'] 
+    - items
+        - M
+        - N
+
+- size11 (enum[string, number]) - E:[<string>,<number>,'M','N']
+    - M
+    - N
+
+- size12: L (enum,default) - D: 'L', E: ['M','N','L']
+    - M
+    - N
+
+- size13: L (enum,default) - D: 'L', E: ['M','N','L']
+    - items
+        - M
+        - N
+
+- size14 (enum,sample) - E: ['M','N']
+    - M
+    - N
+
+- size15 (enum,default) - E: ['M','N'] 
+    - M
+    - N
+
+- size16: A (enum) - C: 'A', E: ['A','D','E','F','G','H','I','J','K'], S: ['F','G','H','I'], D: 'K'
+    - D
+    - E
+
+    - sample
+        - F
+        - G
+
+    - sample
+        - H
+        - I
+
+    - default
+        - J
+        - K
+
+
+- size17: A,B,C (enum) - E: ['A','B','C','D','E','F']
+    - D
+    - E
+    - F

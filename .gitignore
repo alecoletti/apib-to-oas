@@ -1,0 +1,19 @@
+# apib-to-oas build output
+/bin/
+
+# GoReleaser output
+/dist/
+
+# Drafter CMake build trees (artifacts only — sources stay tracked)
+/third_party/drafter-v5.1.0/build/
+/third_party/drafter-v5.1.0/build-*/
+
+# Go test/coverage
+*.out
+*.test
+coverage.*
+AGENTS.md
+
+/.idea/
+/tmp/
+/dist/

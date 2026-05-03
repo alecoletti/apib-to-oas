@@ -1,0 +1,29 @@
+{
+  "element": "parseResult",
+  "content": [
+    {
+      "element": "category",
+      "meta": {
+        "classes": {
+          "element": "array",
+          "content": [
+            {
+              "element": "string",
+              "content": "api"
+            }
+          ]
+        },
+        "title": {
+          "element": "string",
+          "content": "API name"
+        }
+      },
+      "content": [
+        {
+          "element": "copy",
+          "content": "This is an API description"
+        }
+      ]
+    }
+  ]
+}

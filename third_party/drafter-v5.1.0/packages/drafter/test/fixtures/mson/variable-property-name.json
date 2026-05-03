@@ -1,0 +1,435 @@
+{
+  "element": "parseResult",
+  "content": [
+    {
+      "element": "category",
+      "meta": {
+        "classes": {
+          "element": "array",
+          "content": [
+            {
+              "element": "string",
+              "content": "api"
+            }
+          ]
+        },
+        "title": {
+          "element": "string",
+          "content": ""
+        }
+      },
+      "content": [
+        {
+          "element": "category",
+          "meta": {
+            "classes": {
+              "element": "array",
+              "content": [
+                {
+                  "element": "string",
+                  "content": "resourceGroup"
+                }
+              ]
+            },
+            "title": {
+              "element": "string",
+              "content": "Example"
+            }
+          },
+          "content": [
+            {
+              "element": "resource",
+              "meta": {
+                "title": {
+                  "element": "string",
+                  "content": ""
+                }
+              },
+              "attributes": {
+                "href": {
+                  "element": "string",
+                  "content": "/"
+                }
+              },
+              "content": [
+                {
+                  "element": "transition",
+                  "meta": {
+                    "title": {
+                      "element": "string",
+                      "content": ""
+                    }
+                  },
+                  "content": [
+                    {
+                      "element": "httpTransaction",
+                      "content": [
+                        {
+                          "element": "httpRequest",
+                          "attributes": {
+                            "method": {
+                              "element": "string",
+                              "content": "GET"
+                            }
+                          },
+                          "content": []
+                        },
+                        {
+                          "element": "httpResponse",
+                          "attributes": {
+                            "statusCode": {
+                              "element": "string",
+                              "content": "200"
+                            },
+                            "headers": {
+                              "element": "httpHeaders",
+                              "content": [
+                                {
+                                  "element": "member",
+                                  "content": {
+                                    "key": {
+                                      "element": "string",
+                                      "content": "Content-Type"
+                                    },
+                                    "value": {
+                                      "element": "string",
+                                      "content": "application/json"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          },
+                          "content": [
+                            {
+                              "element": "dataStructure",
+                              "content": {
+                                "element": "A"
+                              }
+                            },
+                            {
+                              "element": "asset",
+                              "meta": {
+                                "classes": {
+                                  "element": "array",
+                                  "content": [
+                                    {
+                                      "element": "string",
+                                      "content": "messageBody"
+                                    }
+                                  ]
+                                }
+                              },
+                              "attributes": {
+                                "contentType": {
+                                  "element": "string",
+                                  "content": "application/json"
+                                }
+                              },
+                              "content": "{\n  \"s\": \"start\",\n  \"direct\": \"v1\",\n  \"str\": \"v2\",\n  \"str sample\\n\\n\": \"s1\",\n  \"ss\": \"s2\",\n  \"str default\\n\\n\": \"d1\",\n  \"sd\": \"d2\",\n  \"se\": \"e2\",\n  \"e\": \"end\"\n}"
+                            },
+                            {
+                              "element": "asset",
+                              "meta": {
+                                "classes": {
+                                  "element": "array",
+                                  "content": [
+                                    {
+                                      "element": "string",
+                                      "content": "messageBodySchema"
+                                    }
+                                  ]
+                                }
+                              },
+                              "attributes": {
+                                "contentType": {
+                                  "element": "string",
+                                  "content": "application/schema+json"
+                                }
+                              },
+                              "content": "{\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"type\": \"object\",\n  \"properties\": {\n    \"s\": {\n      \"type\": \"string\"\n    },\n    \"e\": {\n      \"type\": \"string\"\n    }\n  },\n  \"patternProperties\": {\n    \"(?:)\": {\n      \"type\": \"string\"\n    }\n  }\n}"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "element": "category",
+          "meta": {
+            "classes": {
+              "element": "array",
+              "content": [
+                {
+                  "element": "string",
+                  "content": "dataStructures"
+                }
+              ]
+            }
+          },
+          "content": [
+            {
+              "element": "dataStructure",
+              "content": {
+                "element": "string",
+                "meta": {
+                  "id": {
+                    "element": "string",
+                    "content": "StrSample"
+                  }
+                },
+                "attributes": {
+                  "samples": {
+                    "element": "array",
+                    "content": [
+                      {
+                        "element": "string",
+                        "content": "str sample\n\n"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "element": "dataStructure",
+              "content": {
+                "element": "string",
+                "meta": {
+                  "id": {
+                    "element": "string",
+                    "content": "StrDefault"
+                  }
+                },
+                "attributes": {
+                  "default": {
+                    "element": "string",
+                    "content": "str default\n\n"
+                  }
+                }
+              }
+            },
+            {
+              "element": "dataStructure",
+              "content": {
+                "element": "string",
+                "meta": {
+                  "id": {
+                    "element": "string",
+                    "content": "StrEmpty"
+                  }
+                }
+              }
+            },
+            {
+              "element": "dataStructure",
+              "content": {
+                "element": "object",
+                "meta": {
+                  "id": {
+                    "element": "string",
+                    "content": "StrObj"
+                  }
+                }
+              }
+            },
+            {
+              "element": "dataStructure",
+              "content": {
+                "element": "object",
+                "meta": {
+                  "id": {
+                    "element": "string",
+                    "content": "A"
+                  }
+                },
+                "content": [
+                  {
+                    "element": "member",
+                    "content": {
+                      "key": {
+                        "element": "string",
+                        "content": "s"
+                      },
+                      "value": {
+                        "element": "string",
+                        "content": "start"
+                      }
+                    }
+                  },
+                  {
+                    "element": "member",
+                    "attributes": {
+                      "variable": {
+                        "element": "boolean",
+                        "content": true
+                      }
+                    },
+                    "content": {
+                      "key": {
+                        "element": "string",
+                        "content": "direct"
+                      },
+                      "value": {
+                        "element": "string",
+                        "content": "v1"
+                      }
+                    }
+                  },
+                  {
+                    "element": "member",
+                    "attributes": {
+                      "variable": {
+                        "element": "boolean",
+                        "content": true
+                      }
+                    },
+                    "content": {
+                      "key": {
+                        "element": "string",
+                        "content": "str"
+                      },
+                      "value": {
+                        "element": "string",
+                        "content": "v2"
+                      }
+                    }
+                  },
+                  {
+                    "element": "member",
+                    "attributes": {
+                      "variable": {
+                        "element": "boolean",
+                        "content": true
+                      }
+                    },
+                    "content": {
+                      "key": {
+                        "element": "StrSample"
+                      },
+                      "value": {
+                        "element": "string",
+                        "content": "s1"
+                      }
+                    }
+                  },
+                  {
+                    "element": "member",
+                    "attributes": {
+                      "variable": {
+                        "element": "boolean",
+                        "content": true
+                      }
+                    },
+                    "content": {
+                      "key": {
+                        "element": "StrSample",
+                        "content": "ss"
+                      },
+                      "value": {
+                        "element": "string",
+                        "content": "s2"
+                      }
+                    }
+                  },
+                  {
+                    "element": "member",
+                    "attributes": {
+                      "variable": {
+                        "element": "boolean",
+                        "content": true
+                      }
+                    },
+                    "content": {
+                      "key": {
+                        "element": "StrDefault"
+                      },
+                      "value": {
+                        "element": "string",
+                        "content": "d1"
+                      }
+                    }
+                  },
+                  {
+                    "element": "member",
+                    "attributes": {
+                      "variable": {
+                        "element": "boolean",
+                        "content": true
+                      }
+                    },
+                    "content": {
+                      "key": {
+                        "element": "StrDefault",
+                        "content": "sd"
+                      },
+                      "value": {
+                        "element": "string",
+                        "content": "d2"
+                      }
+                    }
+                  },
+                  {
+                    "element": "member",
+                    "attributes": {
+                      "variable": {
+                        "element": "boolean",
+                        "content": true
+                      }
+                    },
+                    "content": {
+                      "key": {
+                        "element": "StrEmpty"
+                      },
+                      "value": {
+                        "element": "string",
+                        "content": "e1"
+                      }
+                    }
+                  },
+                  {
+                    "element": "member",
+                    "attributes": {
+                      "variable": {
+                        "element": "boolean",
+                        "content": true
+                      }
+                    },
+                    "content": {
+                      "key": {
+                        "element": "StrEmpty",
+                        "content": "se"
+                      },
+                      "value": {
+                        "element": "string",
+                        "content": "e2"
+                      }
+                    }
+                  },
+                  {
+                    "element": "member",
+                    "content": {
+                      "key": {
+                        "element": "string",
+                        "content": "e"
+                      },
+                      "value": {
+                        "element": "string",
+                        "content": "end"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

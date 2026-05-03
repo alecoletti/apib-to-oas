@@ -1,0 +1,68 @@
+FORMAT: 1A
+HOST: https://api.example.com
+
+# Schemas Demo
+
+A small APIB exercising resource-level + Attributes (default response
+schema), action-level + Attributes (default request schema), inline
++ Attributes overriding both, and a raw + Schema block (highest priority).
+
+## Item [/items/{id}]
+
++ Parameters
+    + id (number, required) - Item identifier
+
++ Attributes (object)
+    + id: 42 (number, required) - Resource identifier
+    + name: widget (string, required) - Display name
+
+### Get Item [GET]
+
++ Response 200 (application/json)
+
+    + Body
+
+            { "id": 42, "name": "widget" }
+
+### Update Item [PATCH]
+
++ Attributes (object)
+    + name (string, required)
+    + active (boolean)
+
++ Request (application/json)
+
+    + Body
+
+            { "active": true, "name": "thing" }
+
++ Response 200 (application/json)
+
+    + Body
+
+            { "active": true, "id": 42, "name": "thing" }
+
+### Delete Item [DELETE]
+
++ Response 204
+
+## Replace [/replace]
+
+### Replace [POST]
+
++ Request (application/json)
+
+    + Attributes (object)
+        + alpha (string, required)
+        + beta (number)
+
+    + Body
+
+            { "alpha": "x" }
+
++ Response 200 (application/json)
+
+    + Body
+
+            { "ok": true }
+

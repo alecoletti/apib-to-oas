@@ -1,0 +1,296 @@
+{
+  "element": "parseResult",
+  "content": [
+    {
+      "element": "category",
+      "meta": {
+        "classes": {
+          "element": "array",
+          "content": [
+            {
+              "element": "string",
+              "content": "api"
+            }
+          ]
+        },
+        "title": {
+          "element": "string",
+          "content": ""
+        }
+      },
+      "content": [
+        {
+          "element": "category",
+          "meta": {
+            "classes": {
+              "element": "array",
+              "content": [
+                {
+                  "element": "string",
+                  "content": "resourceGroup"
+                }
+              ]
+            },
+            "title": {
+              "element": "string",
+              "content": "Example"
+            }
+          },
+          "content": [
+            {
+              "element": "resource",
+              "meta": {
+                "title": {
+                  "element": "string",
+                  "content": "Resource"
+                }
+              },
+              "attributes": {
+                "href": {
+                  "element": "string",
+                  "content": "/example"
+                }
+              },
+              "content": [
+                {
+                  "element": "transition",
+                  "meta": {
+                    "title": {
+                      "element": "string",
+                      "content": "Action"
+                    }
+                  },
+                  "content": [
+                    {
+                      "element": "httpTransaction",
+                      "content": [
+                        {
+                          "element": "httpRequest",
+                          "attributes": {
+                            "method": {
+                              "element": "string",
+                              "content": "GET"
+                            }
+                          },
+                          "content": []
+                        },
+                        {
+                          "element": "httpResponse",
+                          "attributes": {
+                            "statusCode": {
+                              "element": "string",
+                              "content": "200"
+                            },
+                            "headers": {
+                              "element": "httpHeaders",
+                              "content": [
+                                {
+                                  "element": "member",
+                                  "content": {
+                                    "key": {
+                                      "element": "string",
+                                      "content": "Content-Type"
+                                    },
+                                    "value": {
+                                      "element": "string",
+                                      "content": "application/json"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          },
+                          "content": [
+                            {
+                              "element": "dataStructure",
+                              "content": {
+                                "element": "object",
+                                "content": [
+                                  {
+                                    "element": "member",
+                                    "content": {
+                                      "key": {
+                                        "element": "string",
+                                        "content": "name"
+                                      },
+                                      "value": {
+                                        "element": "string"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "element": "select",
+                                    "content": [
+                                      {
+                                        "element": "option",
+                                        "content": [
+                                          {
+                                            "element": "member",
+                                            "content": {
+                                              "key": {
+                                                "element": "string",
+                                                "content": "city"
+                                              },
+                                              "value": {
+                                                "element": "string"
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "element": "option",
+                                        "content": [
+                                          {
+                                            "element": "member",
+                                            "content": {
+                                              "key": {
+                                                "element": "string",
+                                                "content": "town"
+                                              },
+                                              "value": {
+                                                "element": "string"
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "element": "select",
+                                    "content": [
+                                      {
+                                        "element": "option",
+                                        "content": [
+                                          {
+                                            "element": "member",
+                                            "content": {
+                                              "key": {
+                                                "element": "string",
+                                                "content": "state"
+                                              },
+                                              "value": {
+                                                "element": "string"
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "element": "option",
+                                        "content": [
+                                          {
+                                            "element": "select",
+                                            "content": [
+                                              {
+                                                "element": "option",
+                                                "content": [
+                                                  {
+                                                    "element": "member",
+                                                    "content": {
+                                                      "key": {
+                                                        "element": "string",
+                                                        "content": "province"
+                                                      },
+                                                      "value": {
+                                                        "element": "string"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              },
+                                              {
+                                                "element": "option",
+                                                "content": [
+                                                  {
+                                                    "element": "member",
+                                                    "content": {
+                                                      "key": {
+                                                        "element": "string",
+                                                        "content": "territory"
+                                                      },
+                                                      "value": {
+                                                        "element": "string"
+                                                      }
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "element": "member",
+                                    "content": {
+                                      "key": {
+                                        "element": "string",
+                                        "content": "country"
+                                      },
+                                      "value": {
+                                        "element": "string"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            },
+                            {
+                              "element": "asset",
+                              "meta": {
+                                "classes": {
+                                  "element": "array",
+                                  "content": [
+                                    {
+                                      "element": "string",
+                                      "content": "messageBody"
+                                    }
+                                  ]
+                                }
+                              },
+                              "attributes": {
+                                "contentType": {
+                                  "element": "string",
+                                  "content": "application/json"
+                                }
+                              },
+                              "content": "{\n  \"name\": \"\",\n  \"city\": \"\",\n  \"state\": \"\",\n  \"country\": \"\"\n}"
+                            },
+                            {
+                              "element": "asset",
+                              "meta": {
+                                "classes": {
+                                  "element": "array",
+                                  "content": [
+                                    {
+                                      "element": "string",
+                                      "content": "messageBodySchema"
+                                    }
+                                  ]
+                                }
+                              },
+                              "attributes": {
+                                "contentType": {
+                                  "element": "string",
+                                  "content": "application/schema+json"
+                                }
+                              },
+                              "content": "{\n  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n  \"type\": \"object\",\n  \"properties\": {\n    \"name\": {\n      \"type\": \"string\"\n    },\n    \"country\": {\n      \"type\": \"string\"\n    }\n  },\n  \"allOf\": [\n    {\n      \"oneOf\": [\n        {\n          \"properties\": {\n            \"city\": {\n              \"type\": \"string\"\n            }\n          }\n        },\n        {\n          \"properties\": {\n            \"town\": {\n              \"type\": \"string\"\n            }\n          }\n        }\n      ]\n    },\n    {\n      \"oneOf\": [\n        {\n          \"properties\": {\n            \"state\": {\n              \"type\": \"string\"\n            }\n          }\n        },\n        {\n          \"allOf\": [\n            {\n              \"oneOf\": [\n                {\n                  \"properties\": {\n                    \"province\": {\n                      \"type\": \"string\"\n                    }\n                  }\n                },\n                {\n                  \"properties\": {\n                    \"territory\": {\n                      \"type\": \"string\"\n                    }\n                  }\n                }\n              ]\n            }\n          ]\n        }\n      ]\n    }\n  ]\n}"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

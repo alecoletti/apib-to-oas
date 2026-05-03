@@ -1,0 +1,76 @@
+openapi: 3.0.3
+info:
+  title: Polls API
+  version: 0.0.0
+  description: A simple API allowing consumers to view polls and vote in them.
+servers:
+  - url: "https://polls.example.com"
+paths:
+  /questions:
+    get:
+      summary: List All Questions
+      description: Returns every question.
+      operationId: List All Questions
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    question:
+                      type: string
+              example:
+                - question: Favourite programming language?
+    post:
+      summary: Create a New Question
+      operationId: Create a New Question
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                question:
+                  type: string
+            example:
+              question: Favourite editor?
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  question:
+                    type: string
+              example:
+                question: Favourite editor?
+  "/questions/{id}":
+    get:
+      summary: View a Question
+      operationId: View a Question
+      parameters:
+        - name: id
+          in: path
+          description: Numeric id
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  question:
+                    type: string
+              example:
+                question: Favourite programming language?

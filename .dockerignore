@@ -1,0 +1,15 @@
+/bin/
+/dist/
+*.out
+*.test
+coverage.*
+/third_party/drafter-v5.1.0/build/
+/third_party/drafter-v5.1.0/build-*/
+.vscode/
+.idea/
+.DS_Store
+/CHANGELOG.md
+/docs/
+AGENTS.md
+.git/
+.github/

@@ -1,0 +1,152 @@
+# GoReleaser config for apib-to-oas.
+# Docs: https://goreleaser.com/customization/
+#
+# The four POSIX targets match the embedded drafter binaries in
+# internal/drafter/bin/. CGO is disabled so the binary stays static.
+version: 2
+
+project_name: apib-to-oas
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: apib-to-oas
+    main: ./cmd/apib-to-oas
+    binary: apib-to-oas
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .Commit }}
+      - -X main.date={{ .Date }}
+
+archives:
+  - id: default
+    ids: [apib-to-oas]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "arm64" }}arm64
+      {{- else }}{{ .Arch }}{{ end }}
+    formats: [tar.gz]
+    files:
+      - README.md
+      - specs/apib+.md
+      - LICENSE*
+      - CHANGELOG*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  use: github-native
+
+release:
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## apib-to-oas {{ .Tag }}
+
+    `apib-to-oas` converts API Blueprint (incl. MSON) into OpenAPI 3.0 / 3.1 / 3.2.
+
+    Pre-built binaries below cover macOS (Intel + Apple Silicon) and
+    Linux (amd64 + arm64). Verify the download with `checksums.txt`.
+
+    A multi-arch container image is also published to
+    `ghcr.io/alecoletti/apib-to-oas:{{ .Tag }}` (and `:latest` on the highest
+    semver tag). See README for usage.
+
+  footer: |
+    **Install (binary)**
+
+    ```bash
+    # macOS / Linux (replace the URL with the matching tarball above)
+    curl -sSL <tarball-url> | tar -xz
+    sudo mv apib-to-oas /usr/local/bin/
+    apib-to-oas version
+    ```
+
+    **Install (Docker)**
+
+    ```bash
+    docker run --rm -v "$PWD":/work ghcr.io/alecoletti/apib-to-oas:{{ .Tag }} \
+      convert testdata/sample.apib
+    ```
+
+    **Full changelog**: see [CHANGELOG.md](https://github.com/alecoletti/apib-to-oas/blob/main/CHANGELOG.md).
+
+# ----------------------------------------------------------------------
+# Container images.
+#
+# We publish per-architecture images with `dockers:` and then stitch
+# them into a single multi-arch tag with `docker_manifests:` so users
+# do `docker pull ghcr.io/alecoletti/apib-to-oas:vX.Y.Z` and Docker resolves
+# the right arch transparently.
+#
+# `Dockerfile.release` (single-stage) is used here because goreleaser
+# only puts the pre-built binary into the docker build context, not the
+# source tree. The top-level `Dockerfile` is the multi-stage source build
+# used by `task docker` for local development.
+# ----------------------------------------------------------------------
+
+dockers:
+  - id: apib-to-oas-amd64
+    use: buildx
+    goos: linux
+    goarch: amd64
+    image_templates:
+      - "ghcr.io/alecoletti/apib-to-oas:{{ .Version }}-amd64"
+    dockerfile: Dockerfile.release
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=COMMIT={{ .FullCommit }}"
+      - "--build-arg=DATE={{ .Date }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+
+  - id: apib-to-oas-arm64
+    use: buildx
+    goos: linux
+    goarch: arm64
+    image_templates:
+      - "ghcr.io/alecoletti/apib-to-oas:{{ .Version }}-arm64"
+    dockerfile: Dockerfile.release
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=COMMIT={{ .FullCommit }}"
+      - "--build-arg=DATE={{ .Date }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+
+docker_manifests:
+  - name_template: "ghcr.io/alecoletti/apib-to-oas:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/alecoletti/apib-to-oas:{{ .Version }}-amd64"
+      - "ghcr.io/alecoletti/apib-to-oas:{{ .Version }}-arm64"
+  # `latest` is published only for non-prerelease tags.
+  - name_template: "ghcr.io/alecoletti/apib-to-oas:latest"
+    skip_push: auto
+    image_templates:
+      - "ghcr.io/alecoletti/apib-to-oas:{{ .Version }}-amd64"
+      - "ghcr.io/alecoletti/apib-to-oas:{{ .Version }}-arm64"

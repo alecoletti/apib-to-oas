@@ -1,0 +1,130 @@
+openapi: 3.0.3
+info:
+  title: Schemas Demo
+  version: 0.0.0
+  description: |
+    A small APIB that exercises:
+    
+    - a resource-level `+ Attributes` (becomes the default response schema)
+    
+    - an action-level `+ Attributes` (becomes the default request schema)
+    
+    - an inline `+ Attributes` on a payload (overrides for that payload only)
+    
+    - a raw `+ Schema` block (highest priority)
+servers:
+  - url: "https://api.example.com"
+paths:
+  "/items/{id}":
+    get:
+      summary: Get Item
+      operationId: Get Item
+      parameters:
+        - &ref_0
+          name: id
+          in: path
+          description: Item identifier
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: number
+                    description: Resource identifier
+                    example: 42
+                  name:
+                    type: string
+                    description: Display name
+                    example: widget
+                required:
+                  - id
+                  - name
+              example:
+                id: 42
+                name: widget
+    delete:
+      summary: Delete Item
+      operationId: Delete Item
+      parameters:
+        - *ref_0
+      responses:
+        "204":
+          description: No Content
+    patch:
+      summary: Update Item
+      operationId: Update Item
+      parameters:
+        - *ref_0
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                active:
+                  type: boolean
+                name:
+                  type: string
+              required:
+                - name
+            example:
+              active: true
+              name: thing
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: number
+                    description: Resource identifier
+                    example: 42
+                  name:
+                    type: string
+                    description: Display name
+                    example: widget
+                required:
+                  - id
+                  - name
+              example:
+                active: true
+                id: 42
+                name: thing
+  /replace:
+    post:
+      summary: Replace
+      operationId: Replace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                alpha:
+                  type: string
+                beta:
+                  type: integer
+                  minimum: 0
+              required:
+                - alpha
+            example:
+              alpha: x
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              example:
+                ok: true

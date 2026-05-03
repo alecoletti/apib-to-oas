@@ -1,0 +1,135 @@
+version: "2"
+run:
+  concurrency: 4
+  tests: true
+  build-tags:
+    - test
+linters:
+  enable:
+    - bodyclose
+    - cyclop
+    - dupl
+    - errorlint
+    - goconst
+    - goprintffuncname
+    - gosec
+    - misspell
+    - noctx
+    - revive
+    - staticcheck
+    - whitespace
+    - ireturn
+    - errname
+  disable:
+    - depguard
+    - exhaustive
+    - nlreturn
+    - wrapcheck
+    - wsl
+    - nestif
+  settings:
+    cyclop:
+      max-complexity: 35
+    dupl:
+      threshold: 250
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      exclude-functions:
+        - io/ioutil.ReadFile
+        - io.Copy(*bytes.Buffer)
+        - io.Copy(os.Stdout)
+    funlen:
+      lines: 100
+      statements: 50
+    gocognit:
+      min-complexity: 15
+    # The convert package deals in literal API Elements / OAS strings
+    # ("string", "object", "category", "httpRequest", ...). Promoting
+    # those to constants would actively hurt readability without
+    # buying anything.
+    goconst:
+      min-len: 4
+      min-occurrences: 10
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+    gocyclo:
+      min-complexity: 30
+    gosec:
+      excludes:
+        # 0o644 on apib-to-oas convert output is intentional: the file is
+        # a public API spec meant to be world-readable / committed.
+        - G306
+        # Subprocess args come from our own go:embed binary path, not
+        # from user input.
+        - G204
+    lll:
+      line-length: 120
+    misspell:
+      locale: UK
+      mode: restricted
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+    revive:
+      rules:
+        - name: exported
+          arguments:
+            - checkPrivateReceivers
+            - sayRepetitiveInsteadOfStutters
+          disabled: false
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      # Test files: tolerate the usual test-style ergonomics.
+      - linters:
+          - cyclop
+          - dupl
+          - errcheck
+          - funlen
+          - goconst
+          - gocyclo
+          - gosec
+          - ireturn
+        path: _test\.go
+      - linters:
+          - lll
+        source: '^//go:generate '
+      - linters:
+          - godot
+        text: ^\s*// [A-Z].*[^.]$
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/alecoletti/apib-to-oas
+    gofumpt:
+      module-path: github.com/alecoletti/apib-to-oas
+      extra-rules: true
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

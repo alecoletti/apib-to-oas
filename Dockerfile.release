@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1.7
+#
+# Release-time Dockerfile used by goreleaser.
+
+FROM gcr.io/distroless/cc-debian12:nonroot
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+
+LABEL org.opencontainers.image.title="apib-to-oas"
+LABEL org.opencontainers.image.description="Convert API Blueprint (incl. MSON) to OpenAPI 3.0/3.1/3.2."
+LABEL org.opencontainers.image.source="https://github.com/alecoletti/apib-to-oas"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${COMMIT}"
+LABEL org.opencontainers.image.created="${DATE}"
+
+COPY apib-to-oas /usr/local/bin/apib-to-oas
+
+WORKDIR /work
+USER nonroot:nonroot
+
+ENTRYPOINT ["/usr/local/bin/apib-to-oas"]
+CMD ["--help"]
+

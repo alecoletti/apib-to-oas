@@ -1,0 +1,162 @@
+---
+
+name: 🧪 Tests
+
+on:
+  push:
+    branches:
+      - "feature/*"
+      - "bugfix/*"
+      - "hotfix/*"
+      - "main"
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - develop
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  drafter-check:
+    name: Verify embedded drafter binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check all four binaries are present and non-trivial
+        run: task drafter:check
+
+  tests:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: drafter-check
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout source Git repo
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: true
+      - name: Vet
+        run: go vet ./...
+      - name: Run tests
+        # APIB_TO_OAS_REQUIRE_DRAFTER=1 forces the end-to-end test to fail
+        # (rather than skip) if the platform's embedded drafter binary
+        # is missing — keeps the binary set in lockstep with CI.
+        env:
+          APIB_TO_OAS_REQUIRE_DRAFTER: "1"
+        run: |
+          go test -v ./... -covermode=atomic -coverpkg=./... -race -coverprofile coverage.out
+          go tool cover -func=coverage.out -o=coverage.out
+      - name: Build
+        run: go build -o bin/apib-to-oas ./cmd/apib-to-oas
+      - name: Smoke-run
+        run: ./bin/apib-to-oas convert testdata/polls.apib > /dev/null
+      - name: Upload coverage report
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 7
+
+  docker-smoke:
+    name: Docker image smoke
+    runs-on: ubuntu-latest
+    needs: tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: apib-to-oas:ci
+          build-args: |
+            VERSION=ci
+            COMMIT=${{ github.sha }}
+            DATE=ci
+      - name: Smoke-run inside the image
+        run: |
+          docker run --rm -v "$PWD":/work -w /work apib-to-oas:ci \
+            convert testdata/sample.apib > /tmp/out.yaml
+          test -s /tmp/out.yaml
+          head -5 /tmp/out.yaml
+
+  cross-build:
+    name: Cross-build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    needs: tests
+    strategy:
+      matrix:
+        include:
+          - { goos: linux,  goarch: amd64 }
+          - { goos: linux,  goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: true
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -o bin/apib-to-oas-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/apib-to-oas
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apib-to-oas-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: bin/apib-to-oas-${{ matrix.goos }}-${{ matrix.goarch }}
+          if-no-files-found: error
+
+  commitlint:
+    name: Check Commit Messages
+    runs-on: ubuntu-latest
+    env:
+      PR_TITLE: ${{ github.event.pull_request.title }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+          cache: true
+      - name: Install commitlint
+        run: go install github.com/conventionalcommit/commitlint@latest
+
+      - name: Create custom PR title commitlint config
+        run: |
+          cat > pr-commitlint.yaml << EOF
+          version: v0.9.0
+          settings:
+            header-max-length:
+              argument: 100
+          EOF
+
+      - name: Lint PR title (for squash merges)
+        if: github.event_name == 'pull_request'
+        run: echo "$PR_TITLE" | commitlint lint -c pr-commitlint.yaml
+
+      - name: Lint last commit message (for direct pushes)
+        if: github.event_name == 'push'
+        run: git log -1 --pretty=format:"%s" | commitlint lint
+
