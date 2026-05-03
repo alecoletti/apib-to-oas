@@ -22,7 +22,7 @@
   </a>
   <img alt="Go version" src="https://img.shields.io/github/go-mod/go-version/alecoletti/apib-to-oas?logo=go">
   <a href="LICENSE.txt">
-    <img alt="License" src="https://img.shields.io/github/license/alecoletti/apib-to-oas">
+    <img alt="License" src="https://img.shields.io/badge/license-MIT-red.svg?style=flat">
   </a>
 </p>
 
