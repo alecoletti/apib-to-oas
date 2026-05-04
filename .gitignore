@@ -1,19 +1,107 @@
+# ---------------------------------------------------------------------------
+# Project artifacts
+# ---------------------------------------------------------------------------
+
 # apib-to-oas build output
 /bin/
 
 # GoReleaser output
 /dist/
+/dist
 
 # Drafter CMake build trees (artifacts only — sources stay tracked)
 /third_party/drafter-v5.1.0/build/
 /third_party/drafter-v5.1.0/build-*/
 
-# Go test/coverage
-*.out
-*.test
-coverage.*
-
-
-/.idea/
+# Local scratch
 /tmp/
-/dist/
+
+# ---------------------------------------------------------------------------
+# Go
+# ---------------------------------------------------------------------------
+
+# Test binaries / coverage / profiles
+*.test
+*.out
+*.prof
+coverage.*
+coverage.txt
+coverage.html
+
+# Compiled binaries (top-level only — don't ignore Go source dirs named "bin")
+/*.exe
+/*.exe~
+/*.dll
+/*.so
+/*.dylib
+
+# Go workspace files (don't commit per-developer setups)
+go.work
+go.work.sum
+
+# Vendored deps (we don't vendor — keep this listed so accidental
+# `go mod vendor` runs aren't checked in)
+/vendor/
+
+# ---------------------------------------------------------------------------
+# Editors / IDEs
+# ---------------------------------------------------------------------------
+
+# JetBrains
+/.idea/
+*.iml
+
+# VS Code (keep shared settings, ignore per-user state)
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# Vim / Emacs / Sublime / Helix
+*.swp
+*.swo
+*~
+\#*\#
+.\#*
+*.sublime-workspace
+.helix/
+
+# ---------------------------------------------------------------------------
+# OS cruft
+# ---------------------------------------------------------------------------
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+.Trash-*
+
+# ---------------------------------------------------------------------------
+# Misc
+# ---------------------------------------------------------------------------
+
+# Logs
+*.log
+logs/
+
+# Env files (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Direnv
+.envrc

@@ -1056,20 +1056,21 @@ func addResource(res *element, ctx walkCtx, doc *oas.Document, resolver *schemaR
 		// inherited group tag is in place, so `Tags: +Beta` correctly
 		// appends rather than replaces.
 		applyMetaToOperation(op, meta, ctx.tag)
+
+		// Process action-level params FIRST: they are the most
+		// specific source, so when a name overlaps with a
+		// URI-template stub or a resource-level entry, the richer
+		// authoring (description / example / required) must win.
+		// `appendUniqueParam` keeps the first occurrence, so the
+		// inherited stubs added below silently become no-ops.
+		for _, ap := range paramsFromHrefVariables(tr.Attributes.HrefVariables, "query", path, ctx.diag) {
+			op.Parameters = appendUniqueParam(op.Parameters, ap)
+		}
 		// Attach this resource's query parameters to *this* operation
 		// only - see the comment above where `resourceQueryParams` is
 		// built.
 		for _, qp := range resourceQueryParams {
 			op.Parameters = appendUniqueParam(op.Parameters, qp)
-		}
-		// Blueprint+ §6: action-level `+ Parameters` (declared under
-		// the action header, not the resource) come through on
-		// tr.Attributes.HrefVariables. They almost always carry a
-		// `[header]` / `[cookie]` description prefix that overrides
-		// the URI-template inference - without that mechanism stock
-		// Drafter has no syntax for declaring header / cookie params.
-		for _, ap := range paramsFromHrefVariables(tr.Attributes.HrefVariables, "query", path, ctx.diag) {
-			op.Parameters = appendUniqueParam(op.Parameters, ap)
 		}
 		pi.SetOperation(method, op)
 	}
@@ -1503,11 +1504,28 @@ func paramsFromHrefVariables(hv hrefVariablesValue, defaultIn, path string, diag
 			in = "query"
 		}
 
+		oasType := msonTypeToOAS(m.Meta.Title.Content)
+		schema := &oas.Schema{Type: oasType}
+		// MSON enum members carry their candidate values on
+		// attributes.enumerations - lift them so renderers offer a
+		// dropdown rather than a free-text field.
+		if vals := enumerationValues(m.Attributes.Enumerations); len(vals) > 0 {
+			schema.Enum = vals
+		}
+		// Sample value (`+ q: news (string)`) becomes `schema.example`.
+		// Drafter stores every sample as a JSON string regardless of the
+		// declared type, so coerce based on the OAS type.
+		if ex := parameterExampleValue(&m.Content.Value, oasType); ex != nil {
+			schema.Example = ex
+			if f := inferFormat(schema); f != "" {
+				schema.Format = f
+			}
+		}
 		p := &oas.Parameter{
 			Name:        name,
 			In:          in,
 			Description: desc,
-			Schema:      &oas.Schema{Type: msonTypeToOAS(m.Meta.Title.Content)},
+			Schema:      schema,
 		}
 		// Path parameters are required by definition in OAS; otherwise honour MSON.
 		if in == "path" {
@@ -1538,6 +1556,64 @@ func msonTypeToOAS(t string) string {
 	default:
 		return "string"
 	}
+}
+
+// parameterExampleValue extracts a typed sample value from a Drafter
+// hrefVariables member's `content.value` element. Drafter serialises
+// every primitive sample as a JSON string regardless of the declared
+// MSON type (e.g. `+ limit: 20 (number)` arrives as `value: "20"`),
+// so we read the raw string and coerce it based on the OAS type the
+// caller derived from `meta.title`.
+//
+// Returns nil when the element carries no sample, so the caller can
+// skip emitting `example:` rather than rendering an empty value.
+func parameterExampleValue(v *element, oasType string) any {
+	if v == nil || len(v.Content) == 0 {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(v.Content, &s); err != nil || s == "" {
+		return nil
+	}
+	switch oasType {
+	case "number":
+		var n float64
+		if err := json.Unmarshal([]byte(s), &n); err == nil {
+			return n
+		}
+	case "integer":
+		var n int64
+		if err := json.Unmarshal([]byte(s), &n); err == nil {
+			return n
+		}
+	case "boolean":
+		var b bool
+		if err := json.Unmarshal([]byte(s), &b); err == nil {
+			return b
+		}
+	default:
+		return s
+	}
+	return nil
+}
+
+// enumerationValues converts a Drafter `attributes.enumerations`
+// envelope into a slice of OAS-friendly enum values. Used by parameter
+// schemas to surface `+ status: draft (enum[string])` choices.
+func enumerationValues(arr elementsArray) []any {
+	if len(arr.Content) == 0 {
+		return nil
+	}
+	out := make([]any, 0, len(arr.Content))
+	for i := range arr.Content {
+		if v := scalarExample(&arr.Content[i]); v != nil {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // isStandardHTTPMethod reports whether m is one of the verbs OpenAPI's
