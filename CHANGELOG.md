@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/alecoletti/apib-to-oas/compare/v1.0.1...v1.0.2) (2026-05-04)
+
+
+### Bug Fixes
+
+* update parsing for query and path parameters ([#3](https://github.com/alecoletti/apib-to-oas/issues/3)) ([c7f496b](https://github.com/alecoletti/apib-to-oas/commit/c7f496b46d1f63b5513816b3d9e1799415f75e13))
+
 ## [1.0.1](https://github.com/alecoletti/apib-to-oas/compare/v1.0.0...v1.0.1) (2026-05-03)
 
 
