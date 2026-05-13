@@ -3,6 +3,7 @@ package convert
 import (
 	"encoding/json"
 	"regexp"
+	"strings"
 
 	"github.com/alecoletti/apib-to-oas/internal/oas"
 )
@@ -140,48 +141,96 @@ func (r *schemaResolver) objectSchema(el *element, visited map[string]bool) *oas
 	}
 	props := map[string]*oas.Schema{}
 	var required []string
+	var oneOf []*oas.Schema
 	for _, c := range el.contentArray() {
-		if c.Element != "member" {
-			continue
-		}
-		m := decodeMember(&c)
-		if m == nil {
-			continue
-		}
-		name := m.Content.Key.Content
-		if name == "" {
-			continue
-		}
-		valSchema := r.schemaForVisited(&m.Content.Value, visited)
-		if valSchema == nil {
-			valSchema = &oas.Schema{Type: "string"}
-		}
-		// Member-level description (from `- name (type) - description`)
-		// trumps any inherited from the value type.
-		if d := m.Meta.Description.Content; d != "" {
-			valSchema.Description = d
-		}
-		// Inline default / example value: when the value element carries a
-		// scalar `content`, surface it as the property's example.
-		if ex := scalarExample(&m.Content.Value); ex != nil && valSchema.Example == nil {
-			valSchema.Example = ex
-		}
-		// Apply member-level MSON type attributes (`required`, `nullable`,
-		// `fixed`, `optional`, etc.) - these live on the *member* element,
-		// not the value, so they need their own pass.
-		applyTypeAttributes(valSchema, m.Attributes.TypeAttributes)
-		// Infer JSON Schema `format` from the example value's shape (UUID,
-		// RFC 3339 date-time, email, URI, …) when no explicit format is set.
-		if valSchema.Format == "" {
-			if f := inferFormat(valSchema); f != "" {
-				valSchema.Format = f
+		switch c.Element {
+		case "member":
+			m := decodeMember(&c)
+			if m == nil {
+				continue
 			}
-		}
-		props[name] = valSchema
-		for _, ta := range m.Attributes.TypeAttributes.Content {
-			if ta.Content == "required" {
-				required = append(required, name)
-				break
+			name := m.Content.Key.Content
+			if name == "" {
+				continue
+			}
+			valSchema := r.schemaForVisited(&m.Content.Value, visited)
+			if valSchema == nil {
+				valSchema = &oas.Schema{Type: "string"}
+			}
+			// Member-level description (from `- name (type) - description`)
+			// trumps any inherited from the value type.
+			if d := m.Meta.Description.Content; d != "" {
+				valSchema.Description = d
+			}
+			// Inline default / example value: when the value element carries a
+			// scalar `content`, surface it as the property's example.
+			if ex := scalarExample(&m.Content.Value); ex != nil && valSchema.Example == nil {
+				valSchema.Example = ex
+			}
+			// Apply member-level MSON type attributes (`required`, `nullable`,
+			// `fixed`, `optional`, etc.) - these live on the *member* element,
+			// not the value, so they need their own pass.
+			applyTypeAttributes(valSchema, m.Attributes.TypeAttributes)
+			// Infer JSON Schema `format` from the example value's shape (UUID,
+			// RFC 3339 date-time, email, URI, …) when no explicit format is set.
+			if valSchema.Format == "" {
+				if f := inferFormat(valSchema); f != "" {
+					valSchema.Format = f
+				}
+			}
+			props[name] = valSchema
+			for _, ta := range m.Attributes.TypeAttributes.Content {
+				if ta.Content == "required" {
+					required = append(required, name)
+					break
+				}
+			}
+		case "select":
+			// MSON `One Of` → OAS `oneOf`. Each child is an "option"
+			// element whose content is a list of members forming one
+			// alternative object shape.
+			for _, opt := range c.contentArray() {
+				if opt.Element != "option" {
+					continue
+				}
+				optSchema := &oas.Schema{
+					Type:       "object",
+					Properties: map[string]*oas.Schema{},
+				}
+				for _, om := range opt.contentArray() {
+					if om.Element != "member" {
+						continue
+					}
+					mem := decodeMember(&om)
+					if mem == nil {
+						continue
+					}
+					mName := mem.Content.Key.Content
+					if mName == "" {
+						continue
+					}
+					mSchema := r.schemaForVisited(&mem.Content.Value, visited)
+					if mSchema == nil {
+						mSchema = &oas.Schema{Type: "string"}
+					}
+					if d := mem.Meta.Description.Content; d != "" {
+						mSchema.Description = d
+					}
+					if ex := scalarExample(&mem.Content.Value); ex != nil && mSchema.Example == nil {
+						mSchema.Example = ex
+					}
+					applyTypeAttributes(mSchema, mem.Attributes.TypeAttributes)
+					optSchema.Properties[mName] = mSchema
+					for _, ta := range mem.Attributes.TypeAttributes.Content {
+						if ta.Content == "required" {
+							optSchema.Required = append(optSchema.Required, mName)
+							break
+						}
+					}
+				}
+				if len(optSchema.Properties) > 0 {
+					oneOf = append(oneOf, optSchema)
+				}
 			}
 		}
 	}
@@ -191,9 +240,21 @@ func (r *schemaResolver) objectSchema(el *element, visited map[string]bool) *oas
 	if len(required) > 0 {
 		s.Required = required
 	}
+	if len(oneOf) > 0 {
+		s.OneOf = oneOf
+	}
 	// Whole-object type attributes (rare but valid) - mostly "fixed-type",
 	// which translates to `additionalProperties: false`.
 	applyTypeAttributes(s, el.Attributes.TypeAttributes)
+
+	// Recovery: Drafter v5.1.0 sometimes fails to parse complex MSON
+	// (especially `One Of` blocks or multi-line prose followed by
+	// members) and dumps the entire body into meta.description with
+	// zero content children. When that happens, try to salvage
+	// properties and oneOf from the description text.
+	if len(s.Properties) == 0 && len(s.OneOf) == 0 && s.Description != "" {
+		r.recoverMembersFromDescription(s, visited)
+	}
 	return s
 }
 
@@ -441,3 +502,286 @@ var (
 	reEmail    = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 	reURI      = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
 )
+
+// ---------------------------------------------------------------------------
+// Description-recovery: rescue MSON member lines (and `+ One Of` blocks)
+// that Drafter v5.1.0 folds into meta.description instead of parsing
+// into proper content children. This happens for complex named types
+// with prose paragraphs followed by member definitions.
+// ---------------------------------------------------------------------------
+
+
+// - Prose (kept as the cleaned description)
+// - Flat member lines → properties + required
+// - `+ One Of` blocks → oneOf schemas
+//
+// This is a best-effort recovery for Drafter's failure to parse complex
+// MSON bodies. It handles the common cases; deeply nested structures or
+// exotic MSON features may not be fully recovered.
+func (r *schemaResolver) recoverMembersFromDescription(s *oas.Schema, visited map[string]bool) {
+	lines := strings.Split(s.Description, "\n")
+
+	var prose []string
+	props := map[string]*oas.Schema{}
+	var required []string
+	var oneOfBlocks [][]*recoveredMember // each sub-slice is one option's members
+	inOneOf := false
+	var currentOption []*recoveredMember
+	inProse := true
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+
+		// Blank line
+		if trimmed == "" {
+			if inProse {
+				prose = append(prose, line)
+			}
+			continue
+		}
+
+		// Detect `+ One Of` start
+		if strings.HasPrefix(trimmed, "+ One Of") || strings.HasPrefix(trimmed, "- One Of") {
+			inProse = false
+			inOneOf = true
+			currentOption = nil
+			continue
+		}
+
+		// Inside a One Of block: detect `+ Properties` (indented)
+		if inOneOf {
+			if strings.HasPrefix(trimmed, "+ Properties") || strings.HasPrefix(trimmed, "- Properties") {
+				// Start a new option; save previous if any
+				if currentOption != nil {
+					oneOfBlocks = append(oneOfBlocks, currentOption)
+				}
+				currentOption = []*recoveredMember{}
+				continue
+			}
+			// Indented member inside a Properties block
+			if currentOption != nil && (strings.HasPrefix(trimmed, "+ ") || strings.HasPrefix(trimmed, "- ")) {
+				if m := parseMemberLine(trimmed); m != nil {
+					currentOption = append(currentOption, m)
+					continue
+				}
+			}
+		}
+
+		// Flat member line (top-level, not inside One Of)
+		if !inOneOf && (strings.HasPrefix(trimmed, "+ ") || strings.HasPrefix(trimmed, "- ")) {
+			if m := parseMemberLine(trimmed); m != nil {
+				inProse = false
+				ps := r.schemaForRecoveredMember(m, visited)
+				props[m.name] = ps
+				if m.required {
+					required = append(required, m.name)
+				}
+				continue
+			}
+		}
+
+		// Prose line (before first member)
+		if inProse {
+			prose = append(prose, line)
+		}
+	}
+
+	// Flush last One Of option
+	if currentOption != nil {
+		oneOfBlocks = append(oneOfBlocks, currentOption)
+	}
+
+	// Apply recovered properties
+	if len(props) > 0 {
+		s.Properties = props
+	}
+	if len(required) > 0 {
+		s.Required = required
+	}
+
+	// Apply One Of → oneOf
+	if len(oneOfBlocks) > 0 {
+		for _, option := range oneOfBlocks {
+			optSchema := &oas.Schema{
+				Type:       "object",
+				Properties: map[string]*oas.Schema{},
+			}
+			for _, m := range option {
+				optSchema.Properties[m.name] = r.schemaForRecoveredMember(m, visited)
+				if m.required {
+					optSchema.Required = append(optSchema.Required, m.name)
+				}
+			}
+			s.OneOf = append(s.OneOf, optSchema)
+		}
+	}
+
+	// Clean up description: keep only the prose portion
+	cleaned := strings.TrimSpace(strings.Join(prose, "\n"))
+	s.Description = cleaned
+}
+
+// recoveredMember holds a member parsed from description text.
+type recoveredMember struct {
+	name     string
+	example  string   // inline sample value (e.g. "video, podcast, text")
+	typeName string   // e.g. "string", "array[string]", "SportTags"
+	attrs    []string // e.g. ["required", "optional", "nullable"]
+	desc     string   // trailing description after ` - `
+	required bool
+}
+
+// parseMemberLine extracts a recoveredMember from a `+ name: example (type, attrs) - desc` line.
+func parseMemberLine(line string) *recoveredMember {
+	// Strip leading `+ ` or `- `
+	trimmed := strings.TrimSpace(line)
+	if len(trimmed) < 2 {
+		return nil
+	}
+	if trimmed[0] == '+' || trimmed[0] == '-' {
+		trimmed = strings.TrimSpace(trimmed[1:])
+	} else {
+		return nil
+	}
+
+	m := &recoveredMember{}
+
+	// Find the description part after ` - ` (but not inside parentheses)
+	if idx := findDescSeparator(trimmed); idx >= 0 {
+		m.desc = strings.TrimSpace(trimmed[idx+3:])
+		trimmed = strings.TrimSpace(trimmed[:idx])
+	}
+
+	// Find the type/attrs part inside parentheses
+	if lp := strings.LastIndex(trimmed, "("); lp >= 0 {
+		if rp := strings.LastIndex(trimmed, ")"); rp > lp {
+			typeAttrs := trimmed[lp+1 : rp]
+			trimmed = strings.TrimSpace(trimmed[:lp])
+			parts := strings.Split(typeAttrs, ",")
+			for i, p := range parts {
+				p = strings.TrimSpace(p)
+				if i == 0 {
+					m.typeName = p
+				} else {
+					switch p {
+					case "required":
+						m.required = true
+						m.attrs = append(m.attrs, p)
+					case "optional":
+						m.attrs = append(m.attrs, p)
+					case "nullable":
+						m.attrs = append(m.attrs, p)
+					default:
+						m.attrs = append(m.attrs, p)
+					}
+				}
+			}
+		}
+	}
+
+	// Find the example part after `: `
+	if idx := strings.Index(trimmed, ":"); idx >= 0 {
+		m.name = strings.TrimSpace(trimmed[:idx])
+		m.example = strings.TrimSpace(trimmed[idx+1:])
+	} else {
+		m.name = strings.TrimSpace(trimmed)
+	}
+
+	// Strip backtick quoting from name
+	m.name = strings.Trim(m.name, "`")
+
+	if m.name == "" || m.name == "One Of" || m.name == "Properties" {
+		return nil
+	}
+
+	return m
+}
+
+// findDescSeparator finds ` - ` outside parentheses in the string.
+func findDescSeparator(s string) int {
+	depth := 0
+	for i := 0; i < len(s)-2; i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		}
+		if depth == 0 && i+2 < len(s) && s[i] == ' ' && s[i+1] == '-' && s[i+2] == ' ' {
+			return i
+		}
+	}
+	return -1
+}
+
+// schemaForRecoveredMember builds an OAS Schema from a description-recovered member.
+func (r *schemaResolver) schemaForRecoveredMember(m *recoveredMember, visited map[string]bool) *oas.Schema {
+	ps := r.resolveTypeString(m.typeName, visited)
+	if ps == nil {
+		ps = &oas.Schema{Type: "string"}
+	}
+	if m.desc != "" {
+		ps.Description = m.desc
+	}
+	for _, a := range m.attrs {
+		if a == "nullable" {
+			ps.Nullable = true
+		}
+	}
+	return ps
+}
+
+// resolveTypeString converts an MSON type string (e.g. "string",
+// "array[string]", "array[SportTags]", "SportTags") into an OAS schema,
+// using the resolver's registry for named-type lookups.
+func (r *schemaResolver) resolveTypeString(typeName string, visited map[string]bool) *oas.Schema {
+	if typeName == "" {
+		return &oas.Schema{Type: "string"}
+	}
+
+	// Handle array[ItemType]
+	if strings.HasPrefix(typeName, "array[") && strings.HasSuffix(typeName, "]") {
+		inner := typeName[6 : len(typeName)-1]
+		items := r.resolveTypeString(inner, visited)
+		return &oas.Schema{
+			Type:  "array",
+			Items: items,
+		}
+	}
+
+	// Primitive types
+	switch typeName {
+	case "string":
+		return &oas.Schema{Type: "string"}
+	case "number":
+		return &oas.Schema{Type: "number"}
+	case "integer":
+		return &oas.Schema{Type: "integer"}
+	case "boolean":
+		return &oas.Schema{Type: "boolean"}
+	case "object":
+		return &oas.Schema{Type: "object"}
+	}
+
+	// Named type reference: emit $ref when in refs mode, otherwise resolve
+	if r.useRefs {
+		if _, ok := r.registry[typeName]; ok {
+			return &oas.Schema{Ref: "#/components/schemas/" + typeName}
+		}
+	}
+	if def, ok := r.registry[typeName]; ok {
+		if visited[typeName] {
+			return &oas.Schema{Type: "object", Description: "circular reference: " + typeName}
+		}
+		visited[typeName] = true
+		out := r.schemaForVisited(def, visited)
+		delete(visited, typeName)
+		return out
+	}
+
+	// Unknown type — fall back to object
+	return &oas.Schema{Type: "object"}
+}
