@@ -1523,10 +1523,15 @@ func paramsFromHrefVariables(hv hrefVariablesValue, defaultIn, path string, diag
 
 		oasType := msonTypeToOAS(m.Meta.Title.Content)
 		schema := &oas.Schema{Type: oasType}
-		// MSON enum members carry their candidate values on
-		// attributes.enumerations - lift them so renderers offer a
-		// dropdown rather than a free-text field.
-		if vals := enumerationValues(m.Attributes.Enumerations); len(vals) > 0 {
+		// MSON enum parameters (e.g. `status: draft (enum[string], required)`)
+		// carry their Members values on content.value.attributes.enumerations
+		// when the value element is an `enum`. Fall back to the member-level
+		// enumerations for the rarer form where values sit on the member itself.
+		enumSrc := m.Content.Value.Attributes.Enumerations
+		if len(enumSrc.Content) == 0 {
+			enumSrc = m.Attributes.Enumerations
+		}
+		if vals := enumerationValues(enumSrc); len(vals) > 0 {
 			schema.Enum = vals
 		}
 		// Sample value (`+ q: news (string)`) becomes `schema.example`.
@@ -1534,6 +1539,16 @@ func paramsFromHrefVariables(hv hrefVariablesValue, defaultIn, path string, diag
 		// declared type, so coerce based on the OAS type.
 		if ex := parameterExampleValue(&m.Content.Value, oasType); ex != nil {
 			schema.Example = ex
+			// Integer inference: pre-processing normalises `(integer …)` to
+			// `(number …)` so Drafter can parse the document, which means
+			// meta.title may say "number" even when the author wrote
+			// "integer". Re-derive the intent from the example: if it is a
+			// whole number promote the schema type to "integer".
+			if oasType == "number" {
+				if f, ok := ex.(float64); ok && f == float64(int64(f)) {
+					schema.Type = "integer"
+				}
+			}
 			if f := inferFormat(schema); f != "" {
 				schema.Format = f
 			}
@@ -1573,6 +1588,34 @@ func msonTypeToOAS(t string) string {
 	default:
 		return "string"
 	}
+}
+
+// msonNumberOASType resolves the OAS type for a Refract element whose
+// element name is "string", "boolean", or "number". For numeric elements
+// it promotes "number" to "integer" when the inline example content is a
+// whole number (no fractional part).
+//
+// Motivation: Drafter v5 does not recognise `integer` as a built-in MSON
+// primitive; the drafter package pre-processes `(integer …)` annotations
+// to `(number …)` so the document parses. This function re-derives the
+// original intent from the example value, applying the same heuristic
+// that inferSchemaFromExample uses for JSON body examples:
+//
+//	+ limit: 20 (integer, optional)  → preprocessed to (number …)
+//	                                   example 20 is whole → integer
+//	+ price: 9.99 (number)           → 9.99 has a fraction  → number
+//	+ count (number, optional)       → no example content   → number
+func msonNumberOASType(el *element) string {
+	if el.Element != "number" {
+		return msonTypeToOAS(el.Element)
+	}
+	if len(el.Content) > 0 {
+		var n float64
+		if err := json.Unmarshal(el.Content, &n); err == nil && n == float64(int64(n)) {
+			return "integer"
+		}
+	}
+	return "number"
 }
 
 // parameterExampleValue extracts a typed sample value from a Drafter

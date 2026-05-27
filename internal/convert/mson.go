@@ -91,7 +91,7 @@ func (r *schemaResolver) schemaForVisited(el *element, visited map[string]bool) 
 		return r.enumSchema(el, visited)
 	case "string", "number", "boolean":
 		return &oas.Schema{
-			Type:        msonTypeToOAS(el.Element),
+			Type:        msonNumberOASType(el),
 			Description: el.description(),
 		}
 	default:

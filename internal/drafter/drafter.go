@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sync"
 )
@@ -68,7 +69,7 @@ func (r *Runner) Parse(ctx context.Context, src []byte) ([]byte, error) {
 	}
 	// drafter -f json - (read from stdin, JSON output).
 	cmd := exec.CommandContext(ctx, r.binPath, "-f", "json", "-")
-	cmd.Stdin = bytes.NewReader(src)
+	cmd.Stdin = bytes.NewReader(preprocessAPiBlueprint(src))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -76,6 +77,34 @@ func (r *Runner) Parse(ctx context.Context, src []byte) ([]byte, error) {
 		return nil, fmt.Errorf("drafter exec: %w (stderr: %s)", err, stderr.String())
 	}
 	return stdout.Bytes(), nil
+}
+
+// reIntegerType matches `(integer` where integer is used as an MSON type
+// annotation - the part immediately following the opening parenthesis.
+// Drafter v5 does not recognise `integer` as a built-in primitive; it only
+// knows `number`. We normalise it to `number` here so Drafter can parse the
+// document, and the converter recovers `type: integer` by inspecting the
+// example value (see schemaForVisited / msonNumberOASType in mson.go).
+//
+// Patterns handled:
+//   - (integer)          → parenthesised type alone
+//   - (integer, …)       → first type in a comma-separated tuple
+//   - [integer]          → array/enum item type: array[integer], enum[integer]
+var (
+	reIntegerTypeParen  = regexp.MustCompile(`\(integer([,\)\s])`)
+	reIntegerTypeBrack  = regexp.MustCompile(`\[integer\]`)
+)
+
+// preprocessAPiBlueprint normalises Blueprint+ extensions that Drafter does
+// not natively understand before passing the source to the binary.
+//
+// Current transformations:
+//   - `integer` type annotations → `number` (Drafter only knows the MSON
+//     primitive `number`; the converter re-derives integer from the example).
+func preprocessAPiBlueprint(src []byte) []byte {
+	src = reIntegerTypeParen.ReplaceAll(src, []byte("(number$1"))
+	src = reIntegerTypeBrack.ReplaceAll(src, []byte("[number]"))
+	return src
 }
 
 // BinaryPath returns the resolved path of the extracted binary,
