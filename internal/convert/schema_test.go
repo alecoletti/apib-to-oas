@@ -52,6 +52,86 @@ func TestInferFormat(t *testing.T) {
 	}
 }
 
+// TestInferFormat_ArrayStringMSONProperty verifies that format inference
+// reaches the items sub-schema for array[string] MSON object properties.
+// The same code path governs both named-type properties and inline Attributes
+// blocks; this test exercises it via a dataStructure definition.
+func TestInferFormat_ArrayStringMSONProperty(t *testing.T) {
+	// Simulates an MSON named type:
+	//   # Article (object)
+	//   + authors:  `editor@example.com`       (array[string])
+	//   + ids:      `7c9b1e8a-…`               (array[string])
+	//   + published: `2026-04-01T10:00:00Z`    (array[string])
+	//   + dates:    `2026-04-01`                (array[string])
+	//   + links:    `https://example.com`       (array[string])
+	//   + tags:     `sport:football`            (array[string]) — no format
+	refract := []byte(`{
+	  "element":"parseResult",
+	  "content":[{
+	    "element":"category",
+	    "content":[
+	      {"element":"category",
+	       "meta":{"classes":{"element":"array","content":[{"element":"string","content":"dataStructures"}]}},
+	       "content":[
+	         {"element":"dataStructure","content":{
+	           "element":"object","meta":{"id":{"element":"string","content":"Article"}},
+	           "content":[
+	             {"element":"member","content":{"key":{"element":"string","content":"authors"},
+	               "value":{"element":"array","content":[{"element":"string","content":"editor@example.com"}]}}},
+	             {"element":"member","content":{"key":{"element":"string","content":"ids"},
+	               "value":{"element":"array","content":[{"element":"string","content":"7c9b1e8a-2f4d-4d9e-9b5d-1f0a4c2c6c11"}]}}},
+	             {"element":"member","content":{"key":{"element":"string","content":"published"},
+	               "value":{"element":"array","content":[{"element":"string","content":"2026-04-01T10:00:00Z"}]}}},
+	             {"element":"member","content":{"key":{"element":"string","content":"dates"},
+	               "value":{"element":"array","content":[{"element":"string","content":"2026-04-01"}]}}},
+	             {"element":"member","content":{"key":{"element":"string","content":"links"},
+	               "value":{"element":"array","content":[{"element":"string","content":"https://example.com/x"}]}}},
+	             {"element":"member","content":{"key":{"element":"string","content":"tags"},
+	               "value":{"element":"array","content":[{"element":"string","content":"sport:football"}]}}}
+	           ]}}
+	       ]}
+	    ]
+	  }]
+	}`)
+	doc, err := RefractToOAS(refract)
+	if err != nil {
+		t.Fatalf("RefractToOAS: %v", err)
+	}
+	art := doc.Components.Schemas["Article"]
+	if art == nil {
+		t.Fatal("Article schema missing")
+	}
+	cases := []struct {
+		prop       string
+		wantFormat string
+	}{
+		{"authors", "email"},
+		{"ids", "uuid"},
+		{"published", "date-time"},
+		{"dates", "date"},
+		{"links", "uri"},
+		{"tags", ""},
+	}
+	for _, tc := range cases {
+		p := art.Properties[tc.prop]
+		if p == nil {
+			t.Errorf("property %q missing", tc.prop)
+			continue
+		}
+		if p.Type != "array" {
+			t.Errorf("%s: want type array; got %q", tc.prop, p.Type)
+			continue
+		}
+		if p.Items == nil {
+			t.Errorf("%s: items missing", tc.prop)
+			continue
+		}
+		if got := p.Items.Format; got != tc.wantFormat {
+			t.Errorf("%s: items.format = %q, want %q", tc.prop, got, tc.wantFormat)
+		}
+	}
+}
+
 // TestExtractAnnotations parses a hand-built Refract document with an
 // annotation and verifies it surfaces as a typed Annotation.
 func TestExtractAnnotations(t *testing.T) {

@@ -352,6 +352,107 @@ func TestParams_ArrayTypeInHrefVariables(t *testing.T) {
 		t.Errorf("scores items: want {type:number}; got %+v", scores.Schema.Items)
 	}
 }
+
+// TestParams_ArrayItemsFormatInference verifies that format inference is
+// applied to the items schema of array[string] parameters when the
+// example value's shape is unambiguous (email, UUID, date-time, date,
+// URI). Previously inferFormat returned "" for type:"array" and the
+// items sub-schema was never examined.
+func TestParams_ArrayItemsFormatInference(t *testing.T) {
+	//  + author:    `editor@example.com`         (array[string], optional)
+	//  + ids:       `7c9b1e8a-…`                 (array[string], optional)
+	//  + dates:     `2026-04-01`                  (array[string], optional)
+	//  + datetimes: `2026-04-01T10:00:00Z`        (array[string], optional)
+	//  + links:     `https://example.com`         (array[string], optional)
+	//  + tags:      `sport:football`              (array[string], optional)  — no format
+	refract := []byte(`{
+	  "element":"parseResult",
+	  "content":[{
+	    "element":"category",
+	    "content":[{
+	      "element":"resource",
+	      "attributes":{
+	        "href":{"element":"string","content":"/items{?author,ids,dates,datetimes,links,tags}"},
+	        "hrefVariables":{"element":"hrefVariables","content":[
+	          {"element":"member",
+	           "meta":{"title":{"element":"string","content":"array[string]"},"description":{"element":"string","content":"Author emails."}},
+	           "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"optional"}]}},
+	           "content":{"key":{"element":"string","content":"author"},"value":{"element":"string","content":"editor@example.com"}}},
+	          {"element":"member",
+	           "meta":{"title":{"element":"string","content":"array[string]"},"description":{"element":"string","content":"Article UUIDs."}},
+	           "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"optional"}]}},
+	           "content":{"key":{"element":"string","content":"ids"},"value":{"element":"string","content":"7c9b1e8a-2f4d-4d9e-9b5d-1f0a4c2c6c11"}}},
+	          {"element":"member",
+	           "meta":{"title":{"element":"string","content":"array[string]"},"description":{"element":"string","content":"Date filter."}},
+	           "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"optional"}]}},
+	           "content":{"key":{"element":"string","content":"dates"},"value":{"element":"string","content":"2026-04-01"}}},
+	          {"element":"member",
+	           "meta":{"title":{"element":"string","content":"array[string]"},"description":{"element":"string","content":"Date-time filter."}},
+	           "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"optional"}]}},
+	           "content":{"key":{"element":"string","content":"datetimes"},"value":{"element":"string","content":"2026-04-01T10:00:00Z"}}},
+	          {"element":"member",
+	           "meta":{"title":{"element":"string","content":"array[string]"},"description":{"element":"string","content":"Links."}},
+	           "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"optional"}]}},
+	           "content":{"key":{"element":"string","content":"links"},"value":{"element":"string","content":"https://example.com/x"}}},
+	          {"element":"member",
+	           "meta":{"title":{"element":"string","content":"array[string]"},"description":{"element":"string","content":"Taxonomy tags."}},
+	           "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"optional"}]}},
+	           "content":{"key":{"element":"string","content":"tags"},"value":{"element":"string","content":"sport:football"}}}
+	        ]}
+	      },
+	      "content":[{"element":"transition","meta":{"title":{"element":"string","content":"List"}},
+	        "content":[{"element":"httpTransaction","content":[
+	          {"element":"httpRequest","attributes":{"method":{"element":"string","content":"GET"}},"content":[]},
+	          {"element":"httpResponse","attributes":{"statusCode":{"element":"string","content":"200"}},"content":[]}
+	        ]}]}]
+	    }]
+	  }]
+	}`)
+
+	doc, err := RefractToOAS(refract)
+	if err != nil {
+		t.Fatalf("RefractToOAS: %v", err)
+	}
+	pi := doc.Paths["/items"]
+	if pi == nil || pi.Get == nil {
+		t.Fatal("expected GET on /items")
+	}
+	byName := map[string]*oas.Parameter{}
+	for _, p := range pi.Get.Parameters {
+		byName[p.Name] = p
+	}
+
+	cases := []struct {
+		name       string
+		wantFormat string // expected items.format
+	}{
+		{"author", "email"},
+		{"ids", "uuid"},
+		{"dates", "date"},
+		{"datetimes", "date-time"},
+		{"links", "uri"},
+		{"tags", ""}, // opaque string — no format
+	}
+	for _, tc := range cases {
+		p := byName[tc.name]
+		if p == nil {
+			t.Errorf("parameter %q missing", tc.name)
+			continue
+		}
+		if p.Schema == nil || p.Schema.Type != "array" {
+			t.Errorf("%s: want array schema; got %+v", tc.name, p.Schema)
+			continue
+		}
+		if p.Schema.Items == nil {
+			t.Errorf("%s: items schema missing", tc.name)
+			continue
+		}
+		if got := p.Schema.Items.Format; got != tc.wantFormat {
+			t.Errorf("%s: items.format = %q, want %q", tc.name, got, tc.wantFormat)
+		}
+	}
+}
+
 // parameter declared as `(enum[string], required)` with a `+ Members`
 // block has its enum values lifted into schema.enum. Drafter places the
 // Members values on content.value.attributes.enumerations, not on the

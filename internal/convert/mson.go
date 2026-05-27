@@ -145,93 +145,16 @@ func (r *schemaResolver) objectSchema(el *element, visited map[string]bool) *oas
 	for _, c := range el.contentArray() {
 		switch c.Element {
 		case "member":
-			m := decodeMember(&c)
-			if m == nil {
-				continue
-			}
-			name := m.Content.Key.Content
+			name, valSchema, isRequired := r.decodeMemberSchema(&c, visited)
 			if name == "" {
 				continue
 			}
-			valSchema := r.schemaForVisited(&m.Content.Value, visited)
-			if valSchema == nil {
-				valSchema = &oas.Schema{Type: "string"}
-			}
-			// Member-level description (from `- name (type) - description`)
-			// trumps any inherited from the value type.
-			if d := m.Meta.Description.Content; d != "" {
-				valSchema.Description = d
-			}
-			// Inline default / example value: when the value element carries a
-			// scalar `content`, surface it as the property's example.
-			if ex := scalarExample(&m.Content.Value); ex != nil && valSchema.Example == nil {
-				valSchema.Example = ex
-			}
-			// Apply member-level MSON type attributes (`required`, `nullable`,
-			// `fixed`, `optional`, etc.) - these live on the *member* element,
-			// not the value, so they need their own pass.
-			applyTypeAttributes(valSchema, m.Attributes.TypeAttributes)
-			// Infer JSON Schema `format` from the example value's shape (UUID,
-			// RFC 3339 date-time, email, URI, …) when no explicit format is set.
-			if valSchema.Format == "" {
-				if f := inferFormat(valSchema); f != "" {
-					valSchema.Format = f
-				}
-			}
 			props[name] = valSchema
-			for _, ta := range m.Attributes.TypeAttributes.Content {
-				if ta.Content == "required" {
-					required = append(required, name)
-					break
-				}
+			if isRequired {
+				required = append(required, name)
 			}
 		case "select":
-			// MSON `One Of` → OAS `oneOf`. Each child is an "option"
-			// element whose content is a list of members forming one
-			// alternative object shape.
-			for _, opt := range c.contentArray() {
-				if opt.Element != "option" {
-					continue
-				}
-				optSchema := &oas.Schema{
-					Type:       "object",
-					Properties: map[string]*oas.Schema{},
-				}
-				for _, om := range opt.contentArray() {
-					if om.Element != "member" {
-						continue
-					}
-					mem := decodeMember(&om)
-					if mem == nil {
-						continue
-					}
-					mName := mem.Content.Key.Content
-					if mName == "" {
-						continue
-					}
-					mSchema := r.schemaForVisited(&mem.Content.Value, visited)
-					if mSchema == nil {
-						mSchema = &oas.Schema{Type: "string"}
-					}
-					if d := mem.Meta.Description.Content; d != "" {
-						mSchema.Description = d
-					}
-					if ex := scalarExample(&mem.Content.Value); ex != nil && mSchema.Example == nil {
-						mSchema.Example = ex
-					}
-					applyTypeAttributes(mSchema, mem.Attributes.TypeAttributes)
-					optSchema.Properties[mName] = mSchema
-					for _, ta := range mem.Attributes.TypeAttributes.Content {
-						if ta.Content == "required" {
-							optSchema.Required = append(optSchema.Required, mName)
-							break
-						}
-					}
-				}
-				if len(optSchema.Properties) > 0 {
-					oneOf = append(oneOf, optSchema)
-				}
-			}
+			oneOf = append(oneOf, r.decodeSelectSchema(&c, visited)...)
 		}
 	}
 	if len(props) > 0 {
@@ -256,6 +179,129 @@ func (r *schemaResolver) objectSchema(el *element, visited map[string]bool) *oas
 		r.recoverMembersFromDescription(s, visited)
 	}
 	return s
+}
+
+// decodeMemberSchema converts a single "member" element into an OAS property
+// schema. Returns the property name, the resolved schema, and whether the
+// member is marked required. Returns ("", nil, false) when the member should
+// be skipped.
+func (r *schemaResolver) decodeMemberSchema(c *element, visited map[string]bool) (name string, schema *oas.Schema, required bool) {
+	m := decodeMember(c)
+	if m == nil {
+		return "", nil, false
+	}
+	name = m.Content.Key.Content
+	if name == "" {
+		return "", nil, false
+	}
+	valSchema := r.schemaForVisited(&m.Content.Value, visited)
+	if valSchema == nil {
+		valSchema = &oas.Schema{Type: "string"}
+	}
+	// Member-level description (from `- name (type) - description`)
+	// trumps any inherited from the value type.
+	if d := m.Meta.Description.Content; d != "" {
+		valSchema.Description = d
+	}
+	// Inline default / example value: when the value element carries a
+	// scalar `content`, surface it as the property's example.
+	if ex := scalarExample(&m.Content.Value); ex != nil && valSchema.Example == nil {
+		valSchema.Example = ex
+	}
+	// Apply member-level MSON type attributes (`required`, `nullable`,
+	// `fixed`, `optional`, etc.) - these live on the *member* element,
+	// not the value, so they need their own pass.
+	applyTypeAttributes(valSchema, m.Attributes.TypeAttributes)
+	// Infer JSON Schema `format` from the example value's shape (UUID,
+	// RFC 3339 date-time, email, URI, …) when no explicit format is set.
+	applyFormatInference(valSchema, &m.Content.Value)
+	for _, ta := range m.Attributes.TypeAttributes.Content {
+		if ta.Content == "required" {
+			required = true
+			break
+		}
+	}
+	return name, valSchema, required
+}
+
+// decodeSelectSchema converts a "select" element (MSON `One Of`) into a slice
+// of OAS oneOf option schemas. Each child "option" element becomes one
+// alternative object shape.
+func (r *schemaResolver) decodeSelectSchema(c *element, visited map[string]bool) []*oas.Schema {
+	var oneOf []*oas.Schema
+	for _, opt := range c.contentArray() {
+		if opt.Element != "option" {
+			continue
+		}
+		optSchema := &oas.Schema{
+			Type:       "object",
+			Properties: map[string]*oas.Schema{},
+		}
+		for _, om := range opt.contentArray() {
+			if om.Element != "member" {
+				continue
+			}
+			mem := decodeMember(&om)
+			if mem == nil {
+				continue
+			}
+			mName := mem.Content.Key.Content
+			if mName == "" {
+				continue
+			}
+			mSchema := r.schemaForVisited(&mem.Content.Value, visited)
+			if mSchema == nil {
+				mSchema = &oas.Schema{Type: "string"}
+			}
+			if d := mem.Meta.Description.Content; d != "" {
+				mSchema.Description = d
+			}
+			if ex := scalarExample(&mem.Content.Value); ex != nil && mSchema.Example == nil {
+				mSchema.Example = ex
+			}
+			applyTypeAttributes(mSchema, mem.Attributes.TypeAttributes)
+			optSchema.Properties[mName] = mSchema
+			for _, ta := range mem.Attributes.TypeAttributes.Content {
+				if ta.Content == "required" {
+					optSchema.Required = append(optSchema.Required, mName)
+					break
+				}
+			}
+		}
+		if len(optSchema.Properties) > 0 {
+			oneOf = append(oneOf, optSchema)
+		}
+	}
+	return oneOf
+}
+
+// applyFormatInference sets schema.Format (or schema.Items.Format for arrays)
+// by pattern-matching the example value when no explicit format is present.
+// For plain string schemas the example is already on schema.Example; for
+// array[string] schemas the example lives in the first child of the raw value
+// element (scalarExample returns nil for array elements).
+func applyFormatInference(schema *oas.Schema, rawValue *element) {
+	if schema.Format != "" {
+		return
+	}
+	if f := inferFormat(schema); f != "" {
+		schema.Format = f
+		return
+	}
+	// array[string]: inferFormat skips type:"array", so inspect the first
+	// item of the raw value element instead.
+	if schema.Type != "array" || schema.Items == nil || schema.Items.Format != "" {
+		return
+	}
+	items := rawValue.contentArray()
+	if len(items) == 0 {
+		return
+	}
+	if firstEx := scalarExample(&items[0]); firstEx != nil {
+		if f := inferFormat(&oas.Schema{Type: schema.Items.Type, Example: firstEx}); f != "" {
+			schema.Items.Format = f
+		}
+	}
 }
 
 // arraySchema converts an `array` element. The first child element (if any)

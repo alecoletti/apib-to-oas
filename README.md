@@ -214,14 +214,6 @@ release-please → goreleaser → GHCR pipeline.
 
 [MIT](LICENSE).
 
-## Acknowledgements
-
-- [API Blueprint](https://apiblueprint.org/) and
-  [Drafter](https://github.com/apiaryio/drafter) by the original Apiary
-  team — none of this works without their decade of effort.
-- The folks who kept writing APIB even after the format was declared
-  dead. This is for you.
-
 ## Trademarks
 
 Logos shown for identification purposes only. *API Blueprint* and the

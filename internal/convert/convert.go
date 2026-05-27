@@ -1551,6 +1551,15 @@ func paramsFromHrefVariables(hv hrefVariablesValue, defaultIn, path string, diag
 			}
 			if f := inferFormat(schema); f != "" {
 				schema.Format = f
+			} else if schema.Type == "array" && schema.Items != nil && schema.Items.Format == "" {
+				// For array[string] parameters (e.g. `author: editor@example.com
+				// (array[string])`), the top-level schema is type "array" so
+				// inferFormat skips it. Try to derive the format for the items
+				// schema by borrowing the parameter's example value.
+				itemCandidate := &oas.Schema{Type: schema.Items.Type, Example: ex}
+				if f := inferFormat(itemCandidate); f != "" {
+					schema.Items.Format = f
+				}
 			}
 		}
 		p := &oas.Parameter{
