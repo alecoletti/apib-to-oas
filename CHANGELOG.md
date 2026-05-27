@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/alecoletti/apib-to-oas/compare/v1.1.1...v1.2.0) (2026-05-27)
+
+
+### Features
+
+* **convert:** infer integer type from example; lift enum Members in params ([b4ad6c1](https://github.com/alecoletti/apib-to-oas/commit/b4ad6c1a2d6f5a96a89be63b62226afbe6130c3c))
+
 ## [1.1.1](https://github.com/alecoletti/apib-to-oas/compare/v1.1.0...v1.1.1) (2026-05-27)
 
 
