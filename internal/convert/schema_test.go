@@ -132,7 +132,195 @@ func TestInferFormat_ArrayStringMSONProperty(t *testing.T) {
 	}
 }
 
-// TestExtractAnnotations parses a hand-built Refract document with an
+// TestSchemaConstraints_MemberLevel verifies that a `+ Meta` block embedded
+// in an MSON object-member description is extracted and applied as JSON
+// Schema validation constraints on the property schema.
+//
+// APIB equivalent (the Meta block is folded into meta.description by Drafter):
+//
+//	## Article (object)
+//	+ slug: my-article (string) - A URL slug.
+//	    + Meta
+//	        + Pattern: `^[a-z0-9-]+$`
+//	        + MinLength: 3
+//	        + MaxLength: 64
+//	+ score (number) - Quality score.
+//	    + Meta
+//	        + Minimum: 0
+//	        + Maximum: 100
+//	        + MultipleOf: 0.5
+//	+ tags (array) - Tag list.
+//	    + Meta
+//	        + MinItems: 1
+//	        + MaxItems: 20
+//	        + UniqueItems: true
+func TestSchemaConstraints_MemberLevel(t *testing.T) {
+	refract := []byte(`{
+	  "element":"parseResult",
+	  "content":[{"element":"category","content":[
+	    {"element":"category",
+	     "meta":{"classes":{"element":"array","content":[{"element":"string","content":"dataStructures"}]}},
+	     "content":[
+	       {"element":"dataStructure","content":{
+	         "element":"object","meta":{"id":{"element":"string","content":"Article"}},
+	         "content":[
+	           {"element":"member",
+	            "meta":{"description":{"element":"string","content":"A URL slug.\n\n+ Meta\n    + Pattern: ` + "`" + `^[a-z0-9-]+$` + "`" + `\n    + MinLength: 3\n    + MaxLength: 64"}},
+	            "content":{"key":{"element":"string","content":"slug"},"value":{"element":"string","content":"my-article"}}},
+	           {"element":"member",
+	            "meta":{"description":{"element":"string","content":"Quality score.\n\n+ Meta\n    + Minimum: 0\n    + Maximum: 100\n    + MultipleOf: 0.5"}},
+	            "content":{"key":{"element":"string","content":"score"},"value":{"element":"number","content":42}}},
+	           {"element":"member",
+	            "meta":{"description":{"element":"string","content":"Tag list.\n\n+ Meta\n    + MinItems: 1\n    + MaxItems: 20\n    + UniqueItems: true"}},
+	            "content":{"key":{"element":"string","content":"tags"},"value":{"element":"array","content":[{"element":"string"}]}}}
+	         ]}}
+	     ]}
+	  ]}]
+	}`)
+
+	doc, err := RefractToOAS(refract)
+	if err != nil {
+		t.Fatalf("RefractToOAS: %v", err)
+	}
+	art := doc.Components.Schemas["Article"]
+	if art == nil {
+		t.Fatal("Article schema missing")
+	}
+
+	slug := art.Properties["slug"]
+	if slug == nil {
+		t.Fatal("slug property missing")
+	}
+	if slug.Pattern != "^[a-z0-9-]+$" {
+		t.Errorf("slug.pattern = %q, want ^[a-z0-9-]+$", slug.Pattern)
+	}
+	if slug.MinLength == nil || *slug.MinLength != 3 {
+		t.Errorf("slug.minLength = %v, want 3", slug.MinLength)
+	}
+	if slug.MaxLength == nil || *slug.MaxLength != 64 {
+		t.Errorf("slug.maxLength = %v, want 64", slug.MaxLength)
+	}
+	if slug.Description != "A URL slug." {
+		t.Errorf("slug.description = %q (Meta block should be stripped)", slug.Description)
+	}
+
+	score := art.Properties["score"]
+	if score == nil {
+		t.Fatal("score property missing")
+	}
+	if score.Minimum == nil || *score.Minimum != 0 {
+		t.Errorf("score.minimum = %v, want 0", score.Minimum)
+	}
+	if score.Maximum == nil || *score.Maximum != 100 {
+		t.Errorf("score.maximum = %v, want 100", score.Maximum)
+	}
+	if score.MultipleOf == nil || *score.MultipleOf != 0.5 {
+		t.Errorf("score.multipleOf = %v, want 0.5", score.MultipleOf)
+	}
+
+	tags := art.Properties["tags"]
+	if tags == nil {
+		t.Fatal("tags property missing")
+	}
+	if tags.MinItems == nil || *tags.MinItems != 1 {
+		t.Errorf("tags.minItems = %v, want 1", tags.MinItems)
+	}
+	if tags.MaxItems == nil || *tags.MaxItems != 20 {
+		t.Errorf("tags.maxItems = %v, want 20", tags.MaxItems)
+	}
+	if !tags.UniqueItems {
+		t.Errorf("tags.uniqueItems = false, want true")
+	}
+}
+
+// TestSchemaConstraints_NamedType verifies that a `+ Meta` block in a
+// primitive named-type's description is extracted as constraints on the
+// schema emitted for that type.
+//
+// APIB equivalent:
+//
+//	## Slug (string)
+//	A URL-safe identifier.
+//
+//	+ Meta
+//	    + Pattern: `^[a-z0-9-]+$`
+//	    + MinLength: 3
+//	    + MaxLength: 64
+func TestSchemaConstraints_NamedType(t *testing.T) {
+	refract := []byte(`{
+	  "element":"parseResult",
+	  "content":[{"element":"category","content":[
+	    {"element":"category",
+	     "meta":{"classes":{"element":"array","content":[{"element":"string","content":"dataStructures"}]}},
+	     "content":[
+	       {"element":"dataStructure","content":{
+	         "element":"string",
+	         "meta":{"id":{"element":"string","content":"Slug"},
+	                 "description":{"element":"string","content":"A URL-safe identifier.\n\n+ Meta\n    + Pattern: ` + "`" + `^[a-z0-9-]+$` + "`" + `\n    + MinLength: 3\n    + MaxLength: 64"}}
+	       }}
+	     ]}
+	  ]}]
+	}`)
+
+	doc, err := RefractToOAS(refract)
+	if err != nil {
+		t.Fatalf("RefractToOAS: %v", err)
+	}
+	slug := doc.Components.Schemas["Slug"]
+	if slug == nil {
+		t.Fatal("Slug schema missing")
+	}
+	if slug.Type != "string" {
+		t.Errorf("type = %q, want string", slug.Type)
+	}
+	if slug.Pattern != "^[a-z0-9-]+$" {
+		t.Errorf("pattern = %q, want ^[a-z0-9-]+$", slug.Pattern)
+	}
+	if slug.MinLength == nil || *slug.MinLength != 3 {
+		t.Errorf("minLength = %v, want 3", slug.MinLength)
+	}
+	if slug.MaxLength == nil || *slug.MaxLength != 64 {
+		t.Errorf("maxLength = %v, want 64", slug.MaxLength)
+	}
+	if slug.Description != "A URL-safe identifier." {
+		t.Errorf("description = %q (Meta block should be stripped)", slug.Description)
+	}
+}
+
+// TestSchemaConstraints_ExclusiveBounds verifies ExclusiveMinimum /
+// ExclusiveMaximum parsing (OAS 3.1 numeric form).
+func TestSchemaConstraints_ExclusiveBounds(t *testing.T) {
+	refract := []byte(`{
+	  "element":"parseResult",
+	  "content":[{"element":"category","content":[
+	    {"element":"category",
+	     "meta":{"classes":{"element":"array","content":[{"element":"string","content":"dataStructures"}]}},
+	     "content":[
+	       {"element":"dataStructure","content":{
+	         "element":"number",
+	         "meta":{"id":{"element":"string","content":"Ratio"},
+	                 "description":{"element":"string","content":"A ratio.\n\n+ Meta\n    + ExclusiveMinimum: 0\n    + ExclusiveMaximum: 1"}}
+	       }}
+	     ]}
+	  ]}]
+	}`)
+
+	doc, err := RefractToOAS(refract)
+	if err != nil {
+		t.Fatalf("RefractToOAS: %v", err)
+	}
+	ratio := doc.Components.Schemas["Ratio"]
+	if ratio == nil {
+		t.Fatal("Ratio schema missing")
+	}
+	if ratio.ExclusiveMinimum == nil || *ratio.ExclusiveMinimum != 0 {
+		t.Errorf("exclusiveMinimum = %v, want 0", ratio.ExclusiveMinimum)
+	}
+	if ratio.ExclusiveMaximum == nil || *ratio.ExclusiveMaximum != 1 {
+		t.Errorf("exclusiveMaximum = %v, want 1", ratio.ExclusiveMaximum)
+	}
+}
+
 // annotation and verifies it surfaces as a typed Annotation.
 func TestExtractAnnotations(t *testing.T) {
 	src := `{

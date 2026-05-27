@@ -311,6 +311,61 @@ string.
 
 ---
 
+### Per-property constraints (`+ Meta` on MSON members / named types)
+
+API Blueprint has no native syntax for JSON Schema validation
+constraints (`pattern`, `minLength`, etc.). Blueprint+ rescues them
+from an embedded `+ Meta` block inside the description of a MSON
+member or named type.
+
+#### On a named type
+
+```apib
+## ArticleSlug (string)
+A URL-safe article identifier.
+
++ Meta
+    + Pattern: `^[a-z0-9-]+$`
+    + MinLength: 3
+    + MaxLength: 64
+```
+
+#### On an inline member
+
+```apib
++ slug: `my-article` (string) - A URL slug.
+
+    + Meta
+        + Pattern: `^[a-z0-9-]+$`
+        + MaxLength: 64
+```
+
+> Stock Drafter folds the `+ Meta` block into the description text of
+> the named type / member. The converter rescues it: the block is
+> stripped from the rendered `description` and its keys are applied to
+> the JSON Schema.
+
+#### Recognised constraint keys
+
+| Key                | JSON Schema field    | Type    | Notes                                        |
+|--------------------|----------------------|---------|----------------------------------------------|
+| `Pattern`          | `pattern`            | string  | Backtick-wrap recommended (avoids Drafter ` - ` split). |
+| `MinLength`        | `minLength`          | integer | Strings and arrays of strings.               |
+| `MaxLength`        | `maxLength`          | integer |                                              |
+| `Minimum`          | `minimum`            | number  |                                              |
+| `Maximum`          | `maximum`            | number  |                                              |
+| `ExclusiveMinimum` | `exclusiveMinimum`   | number  |                                              |
+| `ExclusiveMaximum` | `exclusiveMaximum`   | number  |                                              |
+| `MultipleOf`       | `multipleOf`         | number  | Must be > 0.                                 |
+| `MinItems`         | `minItems`           | integer | Arrays.                                      |
+| `MaxItems`         | `maxItems`           | integer | Arrays.                                      |
+| `UniqueItems`      | `uniqueItems`        | boolean | `true`/`false`/`yes`/`no`.                   |
+
+Unknown keys in a `+ Meta` block under a member still fall through to
+`x-*` extensions (see [Extensions](#extensions)).
+
+---
+
 ## II. Appendix
 
 ### Webhook groups

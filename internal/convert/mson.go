@@ -90,10 +90,9 @@ func (r *schemaResolver) schemaForVisited(el *element, visited map[string]bool) 
 	case "enum":
 		return r.enumSchema(el, visited)
 	case "string", "number", "boolean":
-		return &oas.Schema{
-			Type:        msonNumberOASType(el),
-			Description: el.description(),
-		}
+		s := &oas.Schema{Type: msonNumberOASType(el)}
+		s.Description = extractConstraintsFromDescription(s, el.description())
+		return s
 	default:
 		// Custom named type. Emit a $ref when in components mode (and
 		// the type is known); otherwise resolve via the registry,
@@ -135,10 +134,8 @@ func (r *schemaResolver) schemaForVisited(el *element, visited map[string]bool) 
 // member-level MSON type-attributes (required / nullable / fixed → enum
 // of one / readOnly / writeOnly / default value / format inference).
 func (r *schemaResolver) objectSchema(el *element, visited map[string]bool) *oas.Schema {
-	s := &oas.Schema{
-		Type:        "object",
-		Description: el.description(),
-	}
+	s := &oas.Schema{Type: "object"}
+	s.Description = extractConstraintsFromDescription(s, el.description())
 	props := map[string]*oas.Schema{}
 	var required []string
 	var oneOf []*oas.Schema
@@ -199,9 +196,11 @@ func (r *schemaResolver) decodeMemberSchema(c *element, visited map[string]bool)
 		valSchema = &oas.Schema{Type: "string"}
 	}
 	// Member-level description (from `- name (type) - description`)
-	// trumps any inherited from the value type.
+	// trumps any inherited from the value type. A `+ Meta` block embedded
+	// in the description is extracted as schema constraints (§14) and
+	// stripped from the visible prose.
 	if d := m.Meta.Description.Content; d != "" {
-		valSchema.Description = d
+		valSchema.Description = extractConstraintsFromDescription(valSchema, d)
 	}
 	// Inline default / example value: when the value element carries a
 	// scalar `content`, surface it as the property's example.
@@ -315,11 +314,9 @@ func (r *schemaResolver) arraySchema(el *element, visited map[string]bool) *oas.
 	if items == nil {
 		items = &oas.Schema{Type: "string"}
 	}
-	return &oas.Schema{
-		Type:        "array",
-		Description: el.description(),
-		Items:       items,
-	}
+	s := &oas.Schema{Type: "array", Items: items}
+	s.Description = extractConstraintsFromDescription(s, el.description())
+	return s
 }
 
 // enumSchema converts an `enum` element. The base type is taken from the

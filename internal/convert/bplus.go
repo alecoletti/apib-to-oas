@@ -17,6 +17,11 @@ import (
 	"github.com/alecoletti/apib-to-oas/internal/oas"
 )
 
+// ptr helpers — used by metaBlock constraint fields.
+func intPtr(v int) *int             { return &v }
+func float64Ptr(v float64) *float64 { return &v }
+func boolPtr(v bool) *bool          { return &v }
+
 // metaBlock is the parsed result of a Blueprint+ `+ Meta` markdown block.
 // Pointer-typed fields distinguish "absent" from "explicitly cleared":
 //
@@ -25,6 +30,7 @@ import (
 //	*Security == empty slice → explicitly clear (no auth on this op)
 //	*Security == non-empty   → use these scheme names
 type metaBlock struct {
+	// Operation-scoped fields.
 	OperationID string
 	Tags        []string // post-normalisation; see TagsAppend for + semantics
 	TagsAppend  bool     // true if any entry had a "+" prefix → merge with inherited
@@ -34,6 +40,21 @@ type metaBlock struct {
 	Security    *[]string
 	Kind        string // group-scope only: maps to tags[].kind (OAS 3.2)
 	Extensions  map[string]string
+
+	// Schema constraint fields (Blueprint+ §14).
+	// When non-nil / non-empty they are applied to the JSON Schema of the
+	// enclosing MSON named type or member via applyMetaToSchema.
+	Pattern          string
+	MinLength        *int
+	MaxLength        *int
+	Minimum          *float64
+	Maximum          *float64
+	ExclusiveMinimum *float64
+	ExclusiveMaximum *float64
+	MultipleOf       *float64
+	MinItems         *int
+	MaxItems         *int
+	UniqueItems      *bool
 }
 
 // isEmpty reports whether the block carries no actionable data.
@@ -41,7 +62,12 @@ func (m *metaBlock) isEmpty() bool {
 	return m == nil ||
 		(m.OperationID == "" && len(m.Tags) == 0 && !m.TagsAppend &&
 			m.Deprecated == nil && m.DocsURL == "" &&
-			m.Security == nil && m.Kind == "" && len(m.Extensions) == 0)
+			m.Security == nil && m.Kind == "" && len(m.Extensions) == 0 &&
+			m.Pattern == "" && m.MinLength == nil && m.MaxLength == nil &&
+			m.Minimum == nil && m.Maximum == nil &&
+			m.ExclusiveMinimum == nil && m.ExclusiveMaximum == nil &&
+			m.MultipleOf == nil && m.MinItems == nil && m.MaxItems == nil &&
+			m.UniqueItems == nil)
 }
 
 // recognisedDocumentMetadataKeys lists the document-level metadata keys
@@ -282,6 +308,8 @@ func parseMetaText(s string) *metaBlock {
 
 // applyMetaKey decodes a single Key/value pair into mb. Unknown keys
 // fall through to mb.Extensions with kebab normalisation (§13.2).
+//
+//nolint:cyclop
 func applyMetaKey(mb *metaBlock, key, val string) {
 	switch strings.ToLower(key) {
 	case "operationid":
@@ -327,6 +355,52 @@ func applyMetaKey(mb *metaBlock, key, val string) {
 		mb.Security = &schemes
 	case "kind":
 		mb.Kind = strings.TrimSpace(val)
+
+	// ── Schema constraints (Blueprint+ §14) ──────────────────────────────
+	case "pattern":
+		// Backtick-wrapped values are common (avoids Drafter splitting on " - ").
+		mb.Pattern = strings.Trim(strings.TrimSpace(val), "`")
+	case "minlength":
+		if n, err := strconv.Atoi(strings.TrimSpace(val)); err == nil {
+			mb.MinLength = intPtr(n)
+		}
+	case "maxlength":
+		if n, err := strconv.Atoi(strings.TrimSpace(val)); err == nil {
+			mb.MaxLength = intPtr(n)
+		}
+	case "minimum":
+		if f, err := strconv.ParseFloat(strings.TrimSpace(val), 64); err == nil {
+			mb.Minimum = float64Ptr(f)
+		}
+	case "maximum":
+		if f, err := strconv.ParseFloat(strings.TrimSpace(val), 64); err == nil {
+			mb.Maximum = float64Ptr(f)
+		}
+	case "exclusiveminimum":
+		if f, err := strconv.ParseFloat(strings.TrimSpace(val), 64); err == nil {
+			mb.ExclusiveMinimum = float64Ptr(f)
+		}
+	case "exclusivemaximum":
+		if f, err := strconv.ParseFloat(strings.TrimSpace(val), 64); err == nil {
+			mb.ExclusiveMaximum = float64Ptr(f)
+		}
+	case "multipleof":
+		if f, err := strconv.ParseFloat(strings.TrimSpace(val), 64); err == nil && f > 0 {
+			mb.MultipleOf = float64Ptr(f)
+		}
+	case "minitems":
+		if n, err := strconv.Atoi(strings.TrimSpace(val)); err == nil {
+			mb.MinItems = intPtr(n)
+		}
+	case "maxitems":
+		if n, err := strconv.Atoi(strings.TrimSpace(val)); err == nil {
+			mb.MaxItems = intPtr(n)
+		}
+	case "uniqueitems":
+		if b, ok := parseBoolish(val); ok {
+			mb.UniqueItems = boolPtr(b)
+		}
+
 	default:
 		// Unknown -> x-* extension on the operation. Values stay as
 		// strings here; coerceExtensionValue converts boolean / numeric
@@ -437,6 +511,40 @@ func mergeMetaBlocks(dst, src *metaBlock) {
 			dst.Extensions = map[string]string{}
 		}
 		dst.Extensions[k] = v
+	}
+	// Schema constraints: first non-nil value wins.
+	if dst.Pattern == "" {
+		dst.Pattern = src.Pattern
+	}
+	if dst.MinLength == nil {
+		dst.MinLength = src.MinLength
+	}
+	if dst.MaxLength == nil {
+		dst.MaxLength = src.MaxLength
+	}
+	if dst.Minimum == nil {
+		dst.Minimum = src.Minimum
+	}
+	if dst.Maximum == nil {
+		dst.Maximum = src.Maximum
+	}
+	if dst.ExclusiveMinimum == nil {
+		dst.ExclusiveMinimum = src.ExclusiveMinimum
+	}
+	if dst.ExclusiveMaximum == nil {
+		dst.ExclusiveMaximum = src.ExclusiveMaximum
+	}
+	if dst.MultipleOf == nil {
+		dst.MultipleOf = src.MultipleOf
+	}
+	if dst.MinItems == nil {
+		dst.MinItems = src.MinItems
+	}
+	if dst.MaxItems == nil {
+		dst.MaxItems = src.MaxItems
+	}
+	if dst.UniqueItems == nil {
+		dst.UniqueItems = src.UniqueItems
 	}
 }
 
@@ -588,6 +696,68 @@ func extractMetaFromResource(res *element) (*metaBlock, map[int]bool) {
 // to anything else.
 func extractMetaFromCategory(cat *element) (*metaBlock, map[int]bool) {
 	return extractMetaFromCopyChildren(cat)
+}
+
+// applyMetaToSchema writes Blueprint+ §14 schema constraints from a `+ Meta`
+// block onto an OAS Schema. Only fields not already set are written (first
+// value wins, consistent with mergeMetaBlocks).
+func applyMetaToSchema(s *oas.Schema, mb *metaBlock) {
+	if mb == nil {
+		return
+	}
+	if mb.Pattern != "" && s.Pattern == "" {
+		s.Pattern = mb.Pattern
+	}
+	if mb.MinLength != nil && s.MinLength == nil {
+		s.MinLength = mb.MinLength
+	}
+	if mb.MaxLength != nil && s.MaxLength == nil {
+		s.MaxLength = mb.MaxLength
+	}
+	if mb.Minimum != nil && s.Minimum == nil {
+		s.Minimum = mb.Minimum
+	}
+	if mb.Maximum != nil && s.Maximum == nil {
+		s.Maximum = mb.Maximum
+	}
+	if mb.ExclusiveMinimum != nil && s.ExclusiveMinimum == nil {
+		s.ExclusiveMinimum = mb.ExclusiveMinimum
+	}
+	if mb.ExclusiveMaximum != nil && s.ExclusiveMaximum == nil {
+		s.ExclusiveMaximum = mb.ExclusiveMaximum
+	}
+	if mb.MultipleOf != nil && s.MultipleOf == nil {
+		s.MultipleOf = mb.MultipleOf
+	}
+	if mb.MinItems != nil && s.MinItems == nil {
+		s.MinItems = mb.MinItems
+	}
+	if mb.MaxItems != nil && s.MaxItems == nil {
+		s.MaxItems = mb.MaxItems
+	}
+	if mb.UniqueItems != nil && !s.UniqueItems {
+		s.UniqueItems = *mb.UniqueItems
+	}
+}
+
+// extractConstraintsFromDescription checks desc for an embedded `+ Meta`
+// block, applies any recognised schema constraints to s, and returns the
+// cleaned description (Meta block stripped). When no Meta block is present
+// desc is returned unchanged.
+func extractConstraintsFromDescription(s *oas.Schema, desc string) string {
+	if desc == "" {
+		return desc
+	}
+	metaText, ok := findMetaInCopy(desc)
+	if !ok {
+		return desc
+	}
+	mb := parseMetaText(metaText)
+	if mb == nil {
+		return desc
+	}
+	applyMetaToSchema(s, mb)
+	return proseFromCopyText(desc)
 }
 
 // applyMetaToPathItem writes the unknown `x-*` extensions from a
