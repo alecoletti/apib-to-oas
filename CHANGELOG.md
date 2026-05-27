@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/alecoletti/apib-to-oas/compare/v1.2.1...v1.2.2) (2026-05-27)
+
+
+### Bug Fixes
+
+* **convert:** infer format on array[string] items schemas ([d1ca02a](https://github.com/alecoletti/apib-to-oas/commit/d1ca02ad1c54ab954f3b5c1619b607f7b599d3c2))
+
 ## [1.2.1](https://github.com/alecoletti/apib-to-oas/compare/v1.2.0...v1.2.1) (2026-05-27)
 
 
