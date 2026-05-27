@@ -91,8 +91,8 @@ func (r *Runner) Parse(ctx context.Context, src []byte) ([]byte, error) {
 //   - (integer, …)       → first type in a comma-separated tuple
 //   - [integer]          → array/enum item type: array[integer], enum[integer]
 var (
-	reIntegerTypeParen  = regexp.MustCompile(`\(integer([,\)\s])`)
-	reIntegerTypeBrack  = regexp.MustCompile(`\[integer\]`)
+	reIntegerTypeParen = regexp.MustCompile(`\(integer([,\)\s])`)
+	reIntegerTypeBrack = regexp.MustCompile(`\[integer\]`)
 )
 
 // preprocessAPiBlueprint normalises Blueprint+ extensions that Drafter does

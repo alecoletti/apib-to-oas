@@ -280,7 +280,78 @@ func TestParams_IntegerInference_HrefVariables(t *testing.T) {
 	}
 }
 
-// TestParams_EnumMembersInHrefVariables verifies that a hrefVariables
+// TestParams_ArrayTypeInHrefVariables verifies that parameters declared as
+// (array[string]) or (array[number]) produce schema:
+//
+//	type: array
+//	items:
+//	  type: string   # (or number / integer)
+//
+// Previously msonTypeToOAS("array[string]") fell through to the default
+// "string" branch, discarding the array wrapper entirely.
+func TestParams_ArrayTypeInHrefVariables(t *testing.T) {
+	refract := []byte(`{
+	  "element":"parseResult",
+	  "content":[{
+	    "element":"category",
+	    "content":[{
+	      "element":"resource",
+	      "attributes":{
+	        "href":{"element":"string","content":"/items{?tags,scores}"},
+	        "hrefVariables":{"element":"hrefVariables","content":[
+	          {"element":"member",
+	           "meta":{"title":{"element":"string","content":"array[string]"},"description":{"element":"string","content":"Tag filter."}},
+	           "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"optional"}]}},
+	           "content":{"key":{"element":"string","content":"tags"},"value":{"element":"string","content":"sport:football"}}},
+	          {"element":"member",
+	           "meta":{"title":{"element":"string","content":"array[number]"},"description":{"element":"string","content":"Score list."}},
+	           "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"optional"}]}},
+	           "content":{"key":{"element":"string","content":"scores"},"value":{"element":"string","content":"42"}}}
+	        ]}
+	      },
+	      "content":[{"element":"transition","meta":{"title":{"element":"string","content":"List"}},
+	        "content":[{"element":"httpTransaction","content":[
+	          {"element":"httpRequest","attributes":{"method":{"element":"string","content":"GET"}},"content":[]},
+	          {"element":"httpResponse","attributes":{"statusCode":{"element":"string","content":"200"}},"content":[]}
+	        ]}]}]
+	    }]
+	  }]
+	}`)
+	doc, err := RefractToOAS(refract)
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	pi := doc.Paths["/items"]
+	if pi == nil || pi.Get == nil {
+		t.Fatal("expected GET on /items")
+	}
+	byName := map[string]*oas.Parameter{}
+	for _, p := range pi.Get.Parameters {
+		byName[p.Name] = p
+	}
+
+	tags := byName["tags"]
+	if tags == nil || tags.Schema == nil {
+		t.Fatal("tags parameter missing")
+	}
+	if tags.Schema.Type != "array" {
+		t.Errorf("tags type: want array; got %q", tags.Schema.Type)
+	}
+	if tags.Schema.Items == nil || tags.Schema.Items.Type != "string" {
+		t.Errorf("tags items: want {type:string}; got %+v", tags.Schema.Items)
+	}
+
+	scores := byName["scores"]
+	if scores == nil || scores.Schema == nil {
+		t.Fatal("scores parameter missing")
+	}
+	if scores.Schema.Type != "array" {
+		t.Errorf("scores type: want array; got %q", scores.Schema.Type)
+	}
+	if scores.Schema.Items == nil || scores.Schema.Items.Type != "number" {
+		t.Errorf("scores items: want {type:number}; got %+v", scores.Schema.Items)
+	}
+}
 // parameter declared as `(enum[string], required)` with a `+ Members`
 // block has its enum values lifted into schema.enum. Drafter places the
 // Members values on content.value.attributes.enumerations, not on the

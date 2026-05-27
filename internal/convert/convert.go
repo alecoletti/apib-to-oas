@@ -1521,8 +1521,8 @@ func paramsFromHrefVariables(hv hrefVariablesValue, defaultIn, path string, diag
 			in = "query"
 		}
 
-		oasType := msonTypeToOAS(m.Meta.Title.Content)
-		schema := &oas.Schema{Type: oasType}
+		schema := paramSchemaFromTitle(m.Meta.Title.Content)
+		oasType := schema.Type // used for example coercion + integer inference below
 		// MSON enum parameters (e.g. `status: draft (enum[string], required)`)
 		// carry their Members values on content.value.attributes.enumerations
 		// when the value element is an `enum`. Fall back to the member-level
@@ -1590,6 +1590,36 @@ func msonTypeToOAS(t string) string {
 	}
 }
 
+// paramSchemaFromTitle converts the MSON type annotation stored in
+// hrefVariables member meta.title into a minimal OAS Schema skeleton.
+// It handles compound type notations that msonTypeToOAS cannot:
+//
+//   - "array[string]"        → {type:array, items:{type:string}}
+//   - "array[number]"        → {type:array, items:{type:number}}
+//   - "enum[string]"         → {type:string}  (enum values are added later)
+//   - "string" / "number" …  → {type:<primitive>}
+//
+// The returned schema's Type field is what callers use for example
+// coercion and integer inference; it is "array" for array compounds.
+func paramSchemaFromTitle(title string) *oas.Schema {
+	t := strings.ToLower(strings.TrimSpace(title))
+	// array[ItemType]
+	if strings.HasPrefix(t, "array[") && strings.HasSuffix(t, "]") {
+		inner := t[6 : len(t)-1]
+		return &oas.Schema{
+			Type:  "array",
+			Items: &oas.Schema{Type: msonTypeToOAS(inner)},
+		}
+	}
+	// enum[BaseType] — enum values are lifted from the value element
+	// separately; here we just need the base type.
+	if strings.HasPrefix(t, "enum[") && strings.HasSuffix(t, "]") {
+		inner := t[5 : len(t)-1]
+		return &oas.Schema{Type: msonTypeToOAS(inner)}
+	}
+	return &oas.Schema{Type: msonTypeToOAS(t)}
+}
+
 // msonNumberOASType resolves the OAS type for a Refract element whose
 // element name is "string", "boolean", or "number". For numeric elements
 // it promotes "number" to "integer" when the inline example content is a
@@ -1601,10 +1631,10 @@ func msonTypeToOAS(t string) string {
 // original intent from the example value, applying the same heuristic
 // that inferSchemaFromExample uses for JSON body examples:
 //
-//	+ limit: 20 (integer, optional)  → preprocessed to (number …)
-//	                                   example 20 is whole → integer
-//	+ price: 9.99 (number)           → 9.99 has a fraction  → number
-//	+ count (number, optional)       → no example content   → number
+//   - limit: 20 (integer, optional)  → preprocessed to (number …)
+//     example 20 is whole → integer
+//   - price: 9.99 (number)           → 9.99 has a fraction  → number
+//   - count (number, optional)       → no example content   → number
 func msonNumberOASType(el *element) string {
 	if el.Element != "number" {
 		return msonTypeToOAS(el.Element)
