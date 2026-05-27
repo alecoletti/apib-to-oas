@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/alecoletti/apib-to-oas/compare/v1.2.0...v1.2.1) (2026-05-27)
+
+
+### Bug Fixes
+
+* **convert:** handle array[T] and enum[T] compound types in hrefVariables params ([6b38fdd](https://github.com/alecoletti/apib-to-oas/commit/6b38fddfd7975054c6e0bfa0dd6475247b3d5afb))
+
 ## [1.2.0](https://github.com/alecoletti/apib-to-oas/compare/v1.1.1...v1.2.0) (2026-05-27)
 
 
