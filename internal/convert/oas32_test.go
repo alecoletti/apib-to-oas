@@ -103,6 +103,137 @@ func TestNullable_OAS32_RewritesToTypeArray(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------
+// #1b - nullable reference field ($ref + nullable) on 3.1+ produces
+//       oneOf: [{$ref: …}, {type: "null"}] — NOT a sibling type array.
+// ---------------------------------------------------------------
+
+// nullableRefFixture builds a Refract parse result that has:
+//   - a named DataStructure "Article" (object with an id field)
+//   - a response body whose `article` field is typed (Article, optional, nullable)
+func nullableRefFixture() []byte {
+	return []byte(`{
+	  "element":"parseResult",
+	  "content":[
+	    {"element":"category","meta":{"title":{"element":"string","content":"API"}},
+	     "content":[
+	       {"element":"category","meta":{"classes":{"element":"array","content":[{"element":"string","content":"dataStructures"}]}},
+	        "content":[
+	          {"element":"dataStructure","content":{
+	            "element":"Article","meta":{"id":{"element":"string","content":"Article"}},
+	            "content":[
+	              {"element":"member","content":{
+	                "key":{"element":"string","content":"id"},
+	                "value":{"element":"string","content":""}}}
+	            ]}}
+	        ]},
+	       {"element":"resource","attributes":{"href":{"element":"string","content":"/x"}},
+	        "content":[{"element":"transition","meta":{"title":{"element":"string","content":"Get"}},
+	          "content":[{"element":"httpTransaction","content":[
+	            {"element":"httpRequest","attributes":{"method":{"element":"string","content":"GET"}},"content":[]},
+	            {"element":"httpResponse","attributes":{"statusCode":{"element":"string","content":"200"},
+	              "headers":{"element":"httpHeaders","content":[
+	                {"element":"member","content":{"key":{"element":"string","content":"Content-Type"},
+	                  "value":{"element":"string","content":"application/json"}}}]}},
+	              "content":[
+	                {"element":"dataStructure","content":{
+	                  "element":"object","content":[
+	                    {"element":"member","content":{
+	                      "key":{"element":"string","content":"article"},
+	                      "value":{"element":"Article","content":""}},
+	                      "attributes":{"typeAttributes":{"element":"array","content":[
+	                        {"element":"string","content":"optional"},
+	                        {"element":"string","content":"nullable"}]}}}
+	                  ]}}
+	              ]}
+	          ]}]
+	        }]
+	       }
+	     ]}
+	  ]}`)
+}
+
+func TestNullableRef_OAS30_WrapsInAllOfWithNullable(t *testing.T) {
+	doc, err := RefractToOASWithOptions(nullableRefFixture(), Options{OASVersion: "3.0"})
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	s := doc.Paths["/x"].Get.Responses["200"].Content["application/json"].Schema.Properties["article"]
+	if s == nil {
+		t.Fatal("article schema missing")
+	}
+	// On 3.0 normalizeRefSiblings fires before nullable processing: the $ref is
+	// moved inside allOf (because nullable:true is a sibling keyword), and
+	// nullable:true stays at the top level so OAS-3.0 tooling can honour it.
+	if s.Ref != "" {
+		t.Errorf("OAS 3.0: $ref should have been moved into allOf; still at top: %q", s.Ref)
+	}
+	if !s.Nullable {
+		t.Errorf("OAS 3.0: Nullable should be true; got false")
+	}
+	if len(s.AllOf) != 1 || s.AllOf[0].Ref != "#/components/schemas/Article" {
+		t.Errorf("OAS 3.0: expected allOf:[{$ref:Article}]; got %+v", s.AllOf)
+	}
+}
+
+func TestNullableRef_OAS31_ProducesOneOf(t *testing.T) {
+	doc, err := RefractToOASWithOptions(nullableRefFixture(), Options{OASVersion: "3.1"})
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	s := doc.Paths["/x"].Get.Responses["200"].Content["application/json"].Schema.Properties["article"]
+	if s == nil {
+		t.Fatal("article schema missing")
+	}
+	// Must NOT be a bare $ref with a sibling type.
+	if s.Ref != "" {
+		t.Errorf("OAS 3.1: $ref must be inside oneOf, not a sibling; got Ref=%q", s.Ref)
+	}
+	if s.Nullable {
+		t.Errorf("OAS 3.1: Nullable must be cleared")
+	}
+	if len(s.TypeList) != 0 {
+		t.Errorf("OAS 3.1: TypeList must be empty for ref+nullable; got %v", s.TypeList)
+	}
+	if len(s.OneOf) != 2 {
+		t.Fatalf("OAS 3.1: expected oneOf with 2 entries; got %d", len(s.OneOf))
+	}
+	if s.OneOf[0].Ref != "#/components/schemas/Article" {
+		t.Errorf("OAS 3.1: oneOf[0] should be $ref to Article; got %q", s.OneOf[0].Ref)
+	}
+	if s.OneOf[1].Type != "null" {
+		t.Errorf("OAS 3.1: oneOf[1] should be {type:null}; got %q", s.OneOf[1].Type)
+	}
+
+	// Verify the marshalled JSON shape too.
+	body, err := Marshal(doc, "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := compactWS(string(body))
+	if !strings.Contains(js, `"oneOf":[{"$ref":"#/components/schemas/Article"},{"type":"null"}]`) {
+		t.Errorf("marshalled JSON should contain oneOf shape; got:\n%s", body)
+	}
+	// Must not have a bare sibling $ref alongside type.
+	if strings.Contains(js, `"type":["null"]`) {
+		t.Errorf("marshalled JSON must NOT contain bare type:[null] array; got:\n%s", body)
+	}
+}
+
+func TestNullableRef_OAS32_ProducesOneOf(t *testing.T) {
+	doc, err := RefractToOASWithOptions(nullableRefFixture(), Options{OASVersion: "3.2"})
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	s := doc.Paths["/x"].Get.Responses["200"].Content["application/json"].Schema.Properties["article"]
+	if s == nil {
+		t.Fatal("article schema missing")
+	}
+	if len(s.OneOf) != 2 || s.OneOf[0].Ref != "#/components/schemas/Article" || s.OneOf[1].Type != "null" {
+		t.Errorf("OAS 3.2: expected oneOf [{$ref:Article},{type:null}]; got %+v", s.OneOf)
+	}
+}
+
 // compactWS strips ASCII whitespace so substring checks ignore the
 // pretty-print indentation that Marshal applies.
 func compactWS(s string) string {

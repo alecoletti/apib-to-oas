@@ -408,22 +408,39 @@ func RefractToOASWithOptions(refract []byte, opts Options) (*oas.Document, error
 // only when the target is 3.1 or 3.2; on 3.0 we keep `nullable: true`.
 //
 // Edge cases:
-//   - Nullable + Type == ""  → emits `type: "null"` alone.
-//   - Nullable + Ref != ""   → 3.0 already wrapped in allOf, but we may
-//     still hit this in 3.1+ where siblings are legal. Preserve the ref
-//     and emit `type: "null"` so the schema still validates.
+//   - Nullable + Ref != ""  → wraps into `oneOf: [{$ref: …}, {type: "null"}]`.
+//     Placing type alongside $ref is invalid in OAS 3.1 JSON Schema 2020-12
+//     because $ref is no longer a resolving-only keyword; a sibling
+//     `type: ["null"]` would override the referenced schema and make the
+//     property accept only null.
+//   - Nullable + Type != "" → emits `type: ["<orig>", "null"]`.
+//   - Nullable + Type == "" → emits `type: ["null"]` alone.
 func normalizeNullableForJSONSchema(doc *oas.Document) {
 	walkSchemas(doc, func(s *oas.Schema) {
 		if s == nil || !s.Nullable {
 			return
 		}
 		switch {
+		case s.Ref != "":
+			// $ref + nullable → oneOf: [$ref, {type: "null"}]
+			// Preserve description; clear all other sibling fields so
+			// no invalid keywords sit next to the oneOf.
+			ref := s.Ref
+			desc := s.Description
+			*s = oas.Schema{
+				OneOf: []*oas.Schema{
+					{Ref: ref},
+					{Type: "null"},
+				},
+				Description: desc,
+			}
 		case s.Type != "":
 			s.TypeList = []string{s.Type, "null"}
+			s.Nullable = false
 		default:
 			s.TypeList = []string{"null"}
+			s.Nullable = false
 		}
-		s.Nullable = false
 	})
 }
 

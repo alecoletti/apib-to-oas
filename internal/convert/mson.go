@@ -510,7 +510,6 @@ var (
 // with prose paragraphs followed by member definitions.
 // ---------------------------------------------------------------------------
 
-
 // - Prose (kept as the cleaned description)
 // - Flat member lines → properties + required
 // - `+ One Of` blocks → oneOf schemas
