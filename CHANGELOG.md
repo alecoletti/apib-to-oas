@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/alecoletti/apib-to-oas/compare/v1.1.0...v1.1.1) (2026-05-27)
+
+
+### Bug Fixes
+
+* **convert:** wrap $ref+nullable into oneOf for OAS 3.1/3.2 ([df9c058](https://github.com/alecoletti/apib-to-oas/commit/df9c058b9fe4824201c3cb7400cc438316b0ca91))
+
 ## [1.1.0](https://github.com/alecoletti/apib-to-oas/compare/v1.0.2...v1.1.0) (2026-05-13)
 
 
