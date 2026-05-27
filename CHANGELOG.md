@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/alecoletti/apib-to-oas/compare/v1.2.2...v1.3.0) (2026-05-27)
+
+
+### Features
+
+* implement pattern constraints ([02b8743](https://github.com/alecoletti/apib-to-oas/commit/02b874359534228e4eb2120e09bfca9374314c9e))
+
 ## [1.2.2](https://github.com/alecoletti/apib-to-oas/compare/v1.2.1...v1.2.2) (2026-05-27)
 
 
