@@ -1562,6 +1562,11 @@ func paramsFromHrefVariables(hv hrefVariablesValue, defaultIn, path string, diag
 				}
 			}
 		}
+		// Strip any embedded `+ Meta` constraint block from the description
+		// and apply the recognised keys (Pattern, MinLength, …) to the
+		// parameter's schema. The block is a Blueprint+ §14 convention that
+		// Drafter folds into the description verbatim.
+		desc = extractConstraintsFromDescription(schema, desc)
 		p := &oas.Parameter{
 			Name:        name,
 			In:          in,

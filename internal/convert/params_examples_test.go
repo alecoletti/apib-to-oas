@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/alecoletti/apib-to-oas/internal/oas"
@@ -453,10 +454,10 @@ func TestParams_ArrayItemsFormatInference(t *testing.T) {
 	}
 }
 
-// parameter declared as `(enum[string], required)` with a `+ Members`
-// block has its enum values lifted into schema.enum. Drafter places the
-// Members values on content.value.attributes.enumerations, not on the
-// member's own attributes.enumerations.
+// TestParams_EnumMembersInHrefVariables verifies that a parameter declared as
+// `(enum[string], required)` with a `+ Members` block has its enum values
+// lifted into schema.enum. Drafter places the Members values on
+// content.value.attributes.enumerations, not on the member's own attributes.
 func TestParams_EnumMembersInHrefVariables(t *testing.T) {
 	//  + status: draft (enum[string], required) - Status filter
 	//      + Members
@@ -523,5 +524,152 @@ func TestParams_EnumMembersInHrefVariables(t *testing.T) {
 	}
 	if !status.Required {
 		t.Errorf("status: want required=true; got false")
+	}
+}
+
+// TestParams_MetaConstraintsExtracted verifies that a Blueprint+ `+ Meta`
+// block embedded in a parameter description is stripped from the rendered
+// description and its constraint keys are applied to the parameter schema.
+//
+// Drafter folds the `+ Meta` block verbatim into the description text of
+// the hrefVariables member; `paramsFromHrefVariables` must call
+// `extractConstraintsFromDescription` to rescue the constraint keys.
+func TestParams_MetaConstraintsExtracted(t *testing.T) {
+	// descJSON is the JSON-string-encoded description that Drafter would emit:
+	// backtick chars are literal in JSON; \n is the JSON newline escape.
+	const sortDesc = "`field[:asc|desc]`. Sortable fields.\\n\\n+ Meta\\n    + Pattern: `^(createdAt|updatedAt|title)(:(asc|desc))?$`\\n    + MaxLength: 32"
+	refract := []byte(`{"element":"parseResult","content":[{"element":"category","content":[{` +
+		`"element":"resource","attributes":{` +
+		`"href":{"element":"string","content":"/items{?sort}"},` +
+		`"hrefVariables":{"element":"hrefVariables","content":[` +
+		`{"element":"member",` +
+		`"meta":{"description":{"element":"string","content":"` + sortDesc + `"},` +
+		`"title":{"element":"string","content":"string"}},` +
+		`"attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"optional"}]}},` +
+		`"content":{"key":{"element":"string","content":"sort"},"value":{"element":"string","content":"publishedAt:desc"}}}` +
+		`]}},` +
+		`"content":[{"element":"transition","meta":{"title":{"element":"string","content":"List"}},` +
+		`"content":[{"element":"httpTransaction","content":[` +
+		`{"element":"httpRequest","attributes":{"method":{"element":"string","content":"GET"}},"content":[]},` +
+		`{"element":"httpResponse","attributes":{"statusCode":{"element":"string","content":"200"}},"content":[]}` +
+		`]}]}]}]}]}`)
+
+	doc, err := RefractToOAS(refract)
+	if err != nil {
+		t.Fatalf("RefractToOAS: %v", err)
+	}
+	pi, ok := doc.Paths["/items"]
+	if !ok {
+		t.Fatal("path /items not found")
+	}
+	if pi.Get == nil {
+		t.Fatal("expected GET operation on /items")
+	}
+	var sort *oas.Parameter
+	for _, p := range pi.Get.Parameters {
+		if p.Name == "sort" {
+			sort = p
+			break
+		}
+	}
+	if sort == nil {
+		t.Fatal("sort parameter missing")
+	}
+
+	// The `+ Meta` block must be stripped from the description.
+	if strings.Contains(sort.Description, "+ Meta") {
+		t.Errorf("description still contains '+ Meta' block: %q", sort.Description)
+	}
+	if strings.Contains(sort.Description, "Pattern") {
+		t.Errorf("description still contains 'Pattern' key: %q", sort.Description)
+	}
+
+	// The constraint keys must be on the schema.
+	if sort.Schema == nil {
+		t.Fatal("sort schema missing")
+	}
+	wantPattern := "^(createdAt|updatedAt|title)(:(asc|desc))?$"
+	if sort.Schema.Pattern != wantPattern {
+		t.Errorf("pattern = %q, want %q", sort.Schema.Pattern, wantPattern)
+	}
+	wantMax := 32
+	if sort.Schema.MaxLength == nil || *sort.Schema.MaxLength != wantMax {
+		t.Errorf("maxLength = %v, want %d", sort.Schema.MaxLength, wantMax)
+	}
+}
+
+// TestParams_MetaConstraints_ArrayItems verifies that item-level constraints
+// (Pattern, MinLength, MaxLength) from a `+ Meta` block under an array[string]
+// parameter are applied to `schema.items`, not to the array wrapper.
+//
+// Authoring shape:
+//
+//   - tag: `sport:football` (array[string], optional) - Taxonomy filter.
+//   - Meta
+//   - Pattern: `^[a-z]+:[a-z0-9-]+$`
+//   - MaxLength: 64
+func TestParams_MetaConstraints_ArrayItems(t *testing.T) {
+	const tagDesc = "Taxonomy filter.\\n\\n+ Meta\\n    + Pattern: `^[a-z]+:[a-z0-9-]+$`\\n    + MaxLength: 64"
+	refract := []byte(`{"element":"parseResult","content":[{"element":"category","content":[{` +
+		`"element":"resource","attributes":{` +
+		`"href":{"element":"string","content":"/items{?tag}"},` +
+		`"hrefVariables":{"element":"hrefVariables","content":[` +
+		`{"element":"member",` +
+		`"meta":{"description":{"element":"string","content":"` + tagDesc + `"},` +
+		`"title":{"element":"string","content":"array[string]"}},` +
+		`"attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"optional"}]}},` +
+		`"content":{"key":{"element":"string","content":"tag"},"value":{"element":"string","content":"sport:football"}}}` +
+		`]}},` +
+		`"content":[{"element":"transition","meta":{"title":{"element":"string","content":"List"}},` +
+		`"content":[{"element":"httpTransaction","content":[` +
+		`{"element":"httpRequest","attributes":{"method":{"element":"string","content":"GET"}},"content":[]},` +
+		`{"element":"httpResponse","attributes":{"statusCode":{"element":"string","content":"200"}},"content":[]}` +
+		`]}]}]}]}]}`)
+
+	doc, err := RefractToOAS(refract)
+	if err != nil {
+		t.Fatalf("RefractToOAS: %v", err)
+	}
+	pi := doc.Paths["/items"]
+	if pi == nil || pi.Get == nil {
+		t.Fatal("expected GET on /items")
+	}
+	var tag *oas.Parameter
+	for _, p := range pi.Get.Parameters {
+		if p.Name == "tag" {
+			tag = p
+			break
+		}
+	}
+	if tag == nil {
+		t.Fatal("tag parameter missing")
+	}
+	if tag.Schema == nil || tag.Schema.Type != "array" {
+		t.Fatalf("tag schema: want type=array; got %+v", tag.Schema)
+	}
+
+	// The Meta block must be stripped from the description.
+	if strings.Contains(tag.Description, "Meta") {
+		t.Errorf("description still contains Meta block: %q", tag.Description)
+	}
+
+	// Pattern and MaxLength must land on the ITEMS schema, not the array.
+	if tag.Schema.Pattern != "" {
+		t.Errorf("array wrapper should have no pattern; got %q", tag.Schema.Pattern)
+	}
+	if tag.Schema.MaxLength != nil {
+		t.Errorf("array wrapper should have no maxLength; got %d", *tag.Schema.MaxLength)
+	}
+	items := tag.Schema.Items
+	if items == nil {
+		t.Fatal("tag.schema.items is nil")
+	}
+	wantPattern := "^[a-z]+:[a-z0-9-]+$"
+	if items.Pattern != wantPattern {
+		t.Errorf("items.pattern = %q, want %q", items.Pattern, wantPattern)
+	}
+	wantMax := 64
+	if items.MaxLength == nil || *items.MaxLength != wantMax {
+		t.Errorf("items.maxLength = %v, want %d", items.MaxLength, wantMax)
 	}
 }

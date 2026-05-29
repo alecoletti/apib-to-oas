@@ -701,34 +701,46 @@ func extractMetaFromCategory(cat *element) (*metaBlock, map[int]bool) {
 // applyMetaToSchema writes Blueprint+ §14 schema constraints from a `+ Meta`
 // block onto an OAS Schema. Only fields not already set are written (first
 // value wins, consistent with mergeMetaBlocks).
+//
+// Item-level constraints (Pattern, MinLength, MaxLength, Minimum, Maximum,
+// ExclusiveMinimum, ExclusiveMaximum, MultipleOf) are routed to s.Items when
+// the schema is an array — authoring `+ Meta\n+ Pattern: …` under an
+// `array[string]` parameter/member targets the item strings, not the wrapper.
+// Array-level constraints (MinItems, MaxItems, UniqueItems) always stay on s.
 func applyMetaToSchema(s *oas.Schema, mb *metaBlock) {
 	if mb == nil {
 		return
 	}
-	if mb.Pattern != "" && s.Pattern == "" {
-		s.Pattern = mb.Pattern
+	// For array schemas, item-level constraints go on the items sub-schema.
+	itemTarget := s
+	if s.Type == "array" && s.Items != nil {
+		itemTarget = s.Items
 	}
-	if mb.MinLength != nil && s.MinLength == nil {
-		s.MinLength = mb.MinLength
+	if mb.Pattern != "" && itemTarget.Pattern == "" {
+		itemTarget.Pattern = mb.Pattern
 	}
-	if mb.MaxLength != nil && s.MaxLength == nil {
-		s.MaxLength = mb.MaxLength
+	if mb.MinLength != nil && itemTarget.MinLength == nil {
+		itemTarget.MinLength = mb.MinLength
 	}
-	if mb.Minimum != nil && s.Minimum == nil {
-		s.Minimum = mb.Minimum
+	if mb.MaxLength != nil && itemTarget.MaxLength == nil {
+		itemTarget.MaxLength = mb.MaxLength
 	}
-	if mb.Maximum != nil && s.Maximum == nil {
-		s.Maximum = mb.Maximum
+	if mb.Minimum != nil && itemTarget.Minimum == nil {
+		itemTarget.Minimum = mb.Minimum
 	}
-	if mb.ExclusiveMinimum != nil && s.ExclusiveMinimum == nil {
-		s.ExclusiveMinimum = mb.ExclusiveMinimum
+	if mb.Maximum != nil && itemTarget.Maximum == nil {
+		itemTarget.Maximum = mb.Maximum
 	}
-	if mb.ExclusiveMaximum != nil && s.ExclusiveMaximum == nil {
-		s.ExclusiveMaximum = mb.ExclusiveMaximum
+	if mb.ExclusiveMinimum != nil && itemTarget.ExclusiveMinimum == nil {
+		itemTarget.ExclusiveMinimum = mb.ExclusiveMinimum
 	}
-	if mb.MultipleOf != nil && s.MultipleOf == nil {
-		s.MultipleOf = mb.MultipleOf
+	if mb.ExclusiveMaximum != nil && itemTarget.ExclusiveMaximum == nil {
+		itemTarget.ExclusiveMaximum = mb.ExclusiveMaximum
 	}
+	if mb.MultipleOf != nil && itemTarget.MultipleOf == nil {
+		itemTarget.MultipleOf = mb.MultipleOf
+	}
+	// Array-level constraints always stay on the array schema itself.
 	if mb.MinItems != nil && s.MinItems == nil {
 		s.MinItems = mb.MinItems
 	}
