@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/alecoletti/apib-to-oas/compare/v1.3.0...v1.3.1) (2026-05-29)
+
+
+### Bug Fixes
+
+* update param constraints parsing ([8526c27](https://github.com/alecoletti/apib-to-oas/commit/8526c27cdddf0e9fa457f2fbcb88dd31cbbe6853))
+
 ## [1.3.0](https://github.com/alecoletti/apib-to-oas/compare/v1.2.2...v1.3.0) (2026-05-27)
 
 
