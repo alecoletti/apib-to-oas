@@ -212,6 +212,73 @@ schema.
 
 → on OAS 3.0: `nullable: true`. On 3.1 / 3.2: `type: ["string", "null"]`.
 
+#### Type attributes: `fixed` and `fixed-type`
+
+MSON supports two type attributes that constrain how much variation a
+schema allows. Blueprint+ maps them to JSON Schema keywords:
+
+| Type attribute | Applicable to | OAS / JSON Schema effect |
+|---|---|---|
+| `fixed-type` | `object` | `additionalProperties: false` — no extra keys, but properties keep their own `required`/`optional` |
+| `fixed` | `object` | `additionalProperties: false` + every declared property becomes `required` |
+| `fixed` | scalar (`string`, `number`, …) | `enum: [<example>]` — the only valid value is the example |
+
+#### `fixed-type` — close the schema, keep properties optional
+
+Use `fixed-type` when you want to reject unknown keys but still allow
+some properties to be omitted:
+
+```apib
+# Data Structures
+
+## CreateArticleRequest (object, fixed-type)
++ title:    Hello World (string, required)
++ subtitle  (string, optional)
++ tags      (array, optional)
+```
+
+```yaml
+# Generated schema
+type: object
+additionalProperties: false   # no unknown keys
+required:
+  - title                     # only explicitly-required members
+properties:
+  title:   { type: string }
+  subtitle: { type: string }
+  tags:    { type: array }
+```
+
+#### `fixed` — lock the entire shape
+
+Use `fixed` when the object must be provided exactly as declared — no
+unknown keys **and** every declared property is required:
+
+```apib
+## Ping (object, fixed)
++ status: ok (string)
++ version: 1 (number)
+```
+
+```yaml
+type: object
+additionalProperties: false
+required: [status, version]   # all properties promoted to required
+properties:
+  status:  { type: string }
+  version: { type: number }
+```
+
+#### `fixed` on a scalar — constant value
+
+For scalar types, `fixed` pins the only legal value to the example:
+
+```apib
++ kind: article (string, fixed)
+```
+
+→ `enum: ["article"]`.
+
 #### Enum descriptions
 
 ```

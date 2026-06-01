@@ -23,6 +23,54 @@ func TestApplyTypeAttributes_FixedTypeOnObject(t *testing.T) {
 	}
 }
 
+func TestApplyTypeAttributes_FixedOnObject(t *testing.T) {
+	// fixed on an object: additionalProperties=false + all declared
+	// properties promoted to required.
+	s := &oas.Schema{
+		Type: "object",
+		Properties: map[string]*oas.Schema{
+			"title": {Type: "string"},
+			"body":  {Type: "string"},
+		},
+		Required: []string{"title"}, // "body" not yet required
+	}
+	applyTypeAttributes(s, classesList{Content: []stringValue{{Content: "fixed"}}})
+	if got, ok := s.AdditionalProperties.(bool); !ok || got != false {
+		t.Errorf("expected additionalProperties=false, got %v", s.AdditionalProperties)
+	}
+	hasTitle, hasBody := false, false
+	for _, r := range s.Required {
+		switch r {
+		case "title":
+			hasTitle = true
+		case "body":
+			hasBody = true
+		}
+	}
+	if !hasTitle || !hasBody {
+		t.Errorf("expected both 'title' and 'body' in required, got %v", s.Required)
+	}
+}
+
+func TestApplyTypeAttributes_FixedOnObject_NoDuplicateRequired(t *testing.T) {
+	// When a property is already required, fixed must not add a duplicate.
+	s := &oas.Schema{
+		Type:       "object",
+		Properties: map[string]*oas.Schema{"name": {Type: "string"}},
+		Required:   []string{"name"},
+	}
+	applyTypeAttributes(s, classesList{Content: []stringValue{{Content: "fixed"}}})
+	count := 0
+	for _, r := range s.Required {
+		if r == "name" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("'name' should appear exactly once in required, got %v", s.Required)
+	}
+}
+
 func TestApplyTypeAttributes_FixedWithExample(t *testing.T) {
 	s := &oas.Schema{Type: "string", Example: "OK"}
 	applyTypeAttributes(s, classesList{Content: []stringValue{{Content: "fixed"}}})
