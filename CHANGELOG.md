@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/alecoletti/apib-to-oas/compare/v1.4.0...v1.4.1) (2026-06-01)
+
+
+### Bug Fixes
+
+* handle drafters fixedType ([5badc9d](https://github.com/alecoletti/apib-to-oas/commit/5badc9df5dbf0ab6a1bab5ec92c16b155f2c4797))
+
 ## [1.4.0](https://github.com/alecoletti/apib-to-oas/compare/v1.3.1...v1.4.0) (2026-06-01)
 
 
