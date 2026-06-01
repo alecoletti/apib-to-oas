@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/alecoletti/apib-to-oas/compare/v1.3.1...v1.4.0) (2026-06-01)
+
+
+### Features
+
+* add support for fixed-types ([cc57081](https://github.com/alecoletti/apib-to-oas/commit/cc57081d40fde98a8a21480ec508de2f849f501a))
+
 ## [1.3.1](https://github.com/alecoletti/apib-to-oas/compare/v1.3.0...v1.3.1) (2026-05-29)
 
 
