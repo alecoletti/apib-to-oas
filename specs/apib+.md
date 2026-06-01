@@ -223,6 +223,11 @@ schema allows. Blueprint+ maps them to JSON Schema keywords:
 | `fixed` | `object` | `additionalProperties: false` + every declared property becomes `required` |
 | `fixed` | scalar (`string`, `number`, …) | `enum: [<example>]` — the only valid value is the example |
 
+> **Drafter normalisation:** Drafter emits `fixedType` (camelCase) in
+> its Refract JSON for the `fixed-type` source keyword. The converter
+> accepts both spellings. You always write `fixed-type` in your `.apib`
+> source — the camelCase form is an internal Drafter detail.
+
 #### `fixed-type` — close the schema, keep properties optional
 
 Use `fixed-type` when you want to reject unknown keys but still allow

@@ -442,29 +442,29 @@ func applyTypeAttributes(s *oas.Schema, attrs classesList) {
 		switch ta.Content {
 		case "nullable":
 			s.Nullable = true
-	case "fixed":
-		if s.Type == "object" {
-			// fixed on an object: close additional properties AND promote
-			// every declared property to required (MSON §3 semantics —
-			// the object must look exactly as declared).
-			s.AdditionalProperties = false
-			for name := range s.Properties {
-				already := false
-				for _, r := range s.Required {
-					if r == name {
-						already = true
-						break
+		case "fixed":
+			if s.Type == "object" {
+				// fixed on an object: close additional properties AND promote
+				// every declared property to required (MSON §3 semantics —
+				// the object must look exactly as declared).
+				s.AdditionalProperties = false
+				for name := range s.Properties {
+					already := false
+					for _, r := range s.Required {
+						if r == name {
+							already = true
+							break
+						}
+					}
+					if !already {
+						s.Required = append(s.Required, name)
 					}
 				}
-				if !already {
-					s.Required = append(s.Required, name)
-				}
+			} else if s.Example != nil && len(s.Enum) == 0 {
+				// fixed on a scalar: the only valid value is the example.
+				s.Enum = []any{s.Example}
 			}
-		} else if s.Example != nil && len(s.Enum) == 0 {
-			// fixed on a scalar: the only valid value is the example.
-			s.Enum = []any{s.Example}
-		}
-	case "fixed-type":
+	case "fixed-type", "fixedType": // MSON source: "fixed-type"; Drafter Refract: "fixedType"
 		if s.Type == "object" {
 			// fixed-type on an object: close additional properties but
 			// leave individual property values unconstrained.

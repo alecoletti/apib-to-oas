@@ -16,10 +16,14 @@ func TestApplyTypeAttributes_Nullable(t *testing.T) {
 }
 
 func TestApplyTypeAttributes_FixedTypeOnObject(t *testing.T) {
-	s := &oas.Schema{Type: "object"}
-	applyTypeAttributes(s, classesList{Content: []stringValue{{Content: "fixed-type"}}})
-	if got, ok := s.AdditionalProperties.(bool); !ok || got != false {
-		t.Errorf("expected additionalProperties=false, got %v", s.AdditionalProperties)
+	// Test both the MSON spec spelling ("fixed-type") and the camelCase
+	// form Drafter actually emits in its Refract JSON ("fixedType").
+	for _, attr := range []string{"fixed-type", "fixedType"} {
+		s := &oas.Schema{Type: "object"}
+		applyTypeAttributes(s, classesList{Content: []stringValue{{Content: attr}}})
+		if got, ok := s.AdditionalProperties.(bool); !ok || got != false {
+			t.Errorf("attr=%q: expected additionalProperties=false, got %v", attr, s.AdditionalProperties)
+		}
 	}
 }
 
