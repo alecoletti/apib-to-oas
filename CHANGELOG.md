@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/alecoletti/apib-to-oas/compare/v1.4.1...v1.5.0) (2026-06-02)
+
+
+### Features
+
+* add support for extra types ([b0a9418](https://github.com/alecoletti/apib-to-oas/commit/b0a9418ff6290571c278087b238589870ec0c144))
+
 ## [1.4.1](https://github.com/alecoletti/apib-to-oas/compare/v1.4.0...v1.4.1) (2026-06-01)
 
 
