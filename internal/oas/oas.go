@@ -64,6 +64,7 @@ func (i Info) MarshalJSON() ([]byte, error) {
 type Server struct {
 	URL         string `json:"url"`
 	Description string `json:"description,omitempty"`
+	Name        string `json:"name,omitempty"` // OAS 3.2+
 }
 
 // License is the OAS License Object. Identifier (SPDX) was added in
@@ -195,9 +196,10 @@ type ExternalDocs struct {
 //
 // Parent (OAS 3.2+) names another tag that this one is grouped under,
 // allowing a hierarchical navigation in tooling that supports it. The
-// converter only emits Parent when --oas-version 3.2 is selected.
+// converter only emits Parent/Summary when --oas-version 3.2 is selected.
 type Tag struct {
 	Name        string `json:"name"`
+	Summary     string `json:"summary,omitempty"` // OAS 3.2+
 	Description string `json:"description,omitempty"`
 	Parent      string `json:"parent,omitempty"`
 	Kind        string `json:"kind,omitempty"` // OAS 3.2 - nav | badge | audience | …
@@ -229,6 +231,7 @@ type Parameter struct {
 	In          string  `json:"in"`
 	Description string  `json:"description,omitempty"`
 	Required    bool    `json:"required,omitempty"`
+	Deprecated  bool    `json:"deprecated,omitempty"`
 	Schema      *Schema `json:"schema,omitempty"`
 }
 
@@ -272,6 +275,8 @@ type Response struct {
 // Header is an OAS Header Object (subset).
 type Header struct {
 	Description string  `json:"description,omitempty"`
+	Required    bool    `json:"required,omitempty"`
+	Deprecated  bool    `json:"deprecated,omitempty"`
 	Schema      *Schema `json:"schema,omitempty"`
 }
 
@@ -307,7 +312,14 @@ type Schema struct {
 	OneOf         []*Schema      `json:"oneOf,omitempty"`
 	AnyOf         []*Schema      `json:"anyOf,omitempty"`
 	AllOf         []*Schema      `json:"allOf,omitempty"`
+	Not           *Schema        `json:"not,omitempty"`
 	Discriminator *Discriminator `json:"discriminator,omitempty"`
+
+	// Conditional applicators (JSON Schema 2020-12 / OAS 3.1+).
+	// Applied via `+ Schema Patch` blocks in Blueprint+ source.
+	If   *Schema `json:"if,omitempty"`
+	Then *Schema `json:"then,omitempty"`
+	Else *Schema `json:"else,omitempty"`
 
 	// Object-shaped fields.
 	Items                *Schema            `json:"items,omitempty"`
@@ -332,8 +344,10 @@ type Schema struct {
 
 	// Documentation / lifecycle.
 	Default    any   `json:"default,omitempty"`
+	Const      any   `json:"const,omitempty"` // JSON Schema 2020-12 / OAS 3.1+
 	Enum       []any `json:"enum,omitempty"`
-	Example    any   `json:"example,omitempty"`
+	Example    any   `json:"example,omitempty"`  // deprecated in OAS 3.1+; use Examples
+	Examples   []any `json:"examples,omitempty"` // JSON Schema 2020-12 / OAS 3.1+
 	ReadOnly   bool  `json:"readOnly,omitempty"`
 	WriteOnly  bool  `json:"writeOnly,omitempty"`
 	Deprecated bool  `json:"deprecated,omitempty"`

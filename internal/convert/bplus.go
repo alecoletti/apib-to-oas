@@ -10,6 +10,7 @@
 package convert
 
 import (
+	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -39,11 +40,13 @@ type metaBlock struct {
 	DocsDesc    string
 	Security    *[]string
 	Kind        string // group-scope only: maps to tags[].kind (OAS 3.2)
+	Summary     string // group-scope only: maps to tags[].summary (OAS 3.2)
 	Extensions  map[string]string
 
 	// Schema constraint fields (Blueprint+ §14).
 	// When non-nil / non-empty they are applied to the JSON Schema of the
 	// enclosing MSON named type or member via applyMetaToSchema.
+	Discriminator    string // oneOf discriminator propertyName (named-type scope only)
 	Pattern          string
 	MinLength        *int
 	MaxLength        *int
@@ -55,6 +58,10 @@ type metaBlock struct {
 	MinItems         *int
 	MaxItems         *int
 	UniqueItems      *bool
+	// Lifecycle / access annotations (Blueprint+ §14).
+	ReadOnly  *bool
+	WriteOnly *bool
+	Const     any // JSON Schema 2020-12 const value; stored as coerced type
 }
 
 // isEmpty reports whether the block carries no actionable data.
@@ -62,12 +69,14 @@ func (m *metaBlock) isEmpty() bool {
 	return m == nil ||
 		(m.OperationID == "" && len(m.Tags) == 0 && !m.TagsAppend &&
 			m.Deprecated == nil && m.DocsURL == "" &&
-			m.Security == nil && m.Kind == "" && len(m.Extensions) == 0 &&
-			m.Pattern == "" && m.MinLength == nil && m.MaxLength == nil &&
+			m.Security == nil && m.Kind == "" && m.Summary == "" &&
+			len(m.Extensions) == 0 &&
+			m.Discriminator == "" && m.Pattern == "" && m.MinLength == nil && m.MaxLength == nil &&
 			m.Minimum == nil && m.Maximum == nil &&
 			m.ExclusiveMinimum == nil && m.ExclusiveMaximum == nil &&
 			m.MultipleOf == nil && m.MinItems == nil && m.MaxItems == nil &&
-			m.UniqueItems == nil)
+			m.UniqueItems == nil &&
+			m.ReadOnly == nil && m.WriteOnly == nil && m.Const == nil)
 }
 
 // recognisedDocumentMetadataKeys lists the document-level metadata keys
@@ -357,6 +366,10 @@ func applyMetaKey(mb *metaBlock, key, val string) {
 		mb.Kind = strings.TrimSpace(val)
 
 	// ── Schema constraints (Blueprint+ §14) ──────────────────────────────
+	case "discriminator":
+		// Sets discriminator.propertyName on the oneOf parent schema.
+		// Meaningful only on named types that also declare a `One Of` block.
+		mb.Discriminator = strings.TrimSpace(val)
 	case "pattern":
 		// Backtick-wrapped values are common (avoids Drafter splitting on " - ").
 		mb.Pattern = strings.Trim(strings.TrimSpace(val), "`")
@@ -400,6 +413,23 @@ func applyMetaKey(mb *metaBlock, key, val string) {
 		if b, ok := parseBoolish(val); ok {
 			mb.UniqueItems = boolPtr(b)
 		}
+
+	// ── Lifecycle / access annotations (Blueprint+ §14) ──────────────────
+	case "readonly":
+		if b, ok := parseBoolish(val); ok {
+			mb.ReadOnly = boolPtr(b)
+		}
+	case "writeonly":
+		if b, ok := parseBoolish(val); ok {
+			mb.WriteOnly = boolPtr(b)
+		}
+	case "const":
+		// Coerce boolean/numeric shapes; backtick-wrap tolerated.
+		mb.Const = coerceExtensionValue(strings.Trim(strings.TrimSpace(val), "`"))
+
+	// ── Group-scope tag annotations ──────────────────────────────────────
+	case "summary":
+		mb.Summary = strings.TrimSpace(val)
 
 	default:
 		// Unknown -> x-* extension on the operation. Values stay as
@@ -711,35 +741,16 @@ func applyMetaToSchema(s *oas.Schema, mb *metaBlock) {
 	if mb == nil {
 		return
 	}
+	// Discriminator (oneOf propertyName) — only applied when not already set.
+	if mb.Discriminator != "" && s.Discriminator == nil {
+		s.Discriminator = &oas.Discriminator{PropertyName: mb.Discriminator}
+	}
 	// For array schemas, item-level constraints go on the items sub-schema.
 	itemTarget := s
 	if s.Type == "array" && s.Items != nil {
 		itemTarget = s.Items
 	}
-	if mb.Pattern != "" && itemTarget.Pattern == "" {
-		itemTarget.Pattern = mb.Pattern
-	}
-	if mb.MinLength != nil && itemTarget.MinLength == nil {
-		itemTarget.MinLength = mb.MinLength
-	}
-	if mb.MaxLength != nil && itemTarget.MaxLength == nil {
-		itemTarget.MaxLength = mb.MaxLength
-	}
-	if mb.Minimum != nil && itemTarget.Minimum == nil {
-		itemTarget.Minimum = mb.Minimum
-	}
-	if mb.Maximum != nil && itemTarget.Maximum == nil {
-		itemTarget.Maximum = mb.Maximum
-	}
-	if mb.ExclusiveMinimum != nil && itemTarget.ExclusiveMinimum == nil {
-		itemTarget.ExclusiveMinimum = mb.ExclusiveMinimum
-	}
-	if mb.ExclusiveMaximum != nil && itemTarget.ExclusiveMaximum == nil {
-		itemTarget.ExclusiveMaximum = mb.ExclusiveMaximum
-	}
-	if mb.MultipleOf != nil && itemTarget.MultipleOf == nil {
-		itemTarget.MultipleOf = mb.MultipleOf
-	}
+	applyItemTargetConstraints(itemTarget, mb)
 	// Array-level constraints always stay on the array schema itself.
 	if mb.MinItems != nil && s.MinItems == nil {
 		s.MinItems = mb.MinItems
@@ -750,26 +761,183 @@ func applyMetaToSchema(s *oas.Schema, mb *metaBlock) {
 	if mb.UniqueItems != nil && !s.UniqueItems {
 		s.UniqueItems = *mb.UniqueItems
 	}
+	// Lifecycle / access annotations.
+	if mb.ReadOnly != nil && !s.ReadOnly {
+		s.ReadOnly = *mb.ReadOnly
+	}
+	if mb.WriteOnly != nil && !s.WriteOnly {
+		s.WriteOnly = *mb.WriteOnly
+	}
+	if mb.Deprecated != nil && !s.Deprecated {
+		s.Deprecated = *mb.Deprecated
+	}
+	if mb.Const != nil && s.Const == nil {
+		s.Const = mb.Const
+	}
+}
+
+// applyItemTargetConstraints sets the scalar/string validation keywords that
+// apply either to the schema itself (non-array) or to its items sub-schema
+// (array). Extracted from applyMetaToSchema to keep that function's cyclomatic
+// complexity within the project limit.
+func applyItemTargetConstraints(t *oas.Schema, mb *metaBlock) {
+	if mb.Pattern != "" && t.Pattern == "" {
+		t.Pattern = mb.Pattern
+	}
+	if mb.MinLength != nil && t.MinLength == nil {
+		t.MinLength = mb.MinLength
+	}
+	if mb.MaxLength != nil && t.MaxLength == nil {
+		t.MaxLength = mb.MaxLength
+	}
+	if mb.Minimum != nil && t.Minimum == nil {
+		t.Minimum = mb.Minimum
+	}
+	if mb.Maximum != nil && t.Maximum == nil {
+		t.Maximum = mb.Maximum
+	}
+	if mb.ExclusiveMinimum != nil && t.ExclusiveMinimum == nil {
+		t.ExclusiveMinimum = mb.ExclusiveMinimum
+	}
+	if mb.ExclusiveMaximum != nil && t.ExclusiveMaximum == nil {
+		t.ExclusiveMaximum = mb.ExclusiveMaximum
+	}
+	if mb.MultipleOf != nil && t.MultipleOf == nil {
+		t.MultipleOf = mb.MultipleOf
+	}
 }
 
 // extractConstraintsFromDescription checks desc for an embedded `+ Meta`
-// block, applies any recognised schema constraints to s, and returns the
-// cleaned description (Meta block stripped). When no Meta block is present
-// desc is returned unchanged.
+// block and/or a `+ Schema Patch` block, applies any recognised constraints
+// to s, and returns the cleaned description (blocks stripped). When neither
+// block is present desc is returned unchanged.
 func extractConstraintsFromDescription(s *oas.Schema, desc string) string {
 	if desc == "" {
 		return desc
 	}
-	metaText, ok := findMetaInCopy(desc)
-	if !ok {
-		return desc
+	if metaText, ok := findMetaInCopy(desc); ok {
+		if mb := parseMetaText(metaText); mb != nil {
+			applyMetaToSchema(s, mb)
+			desc = proseFromCopyText(desc)
+		}
 	}
-	mb := parseMetaText(metaText)
-	if mb == nil {
-		return desc
+	if patchBody, ok := findSchemaPatchInCopy(desc); ok {
+		applySchemaPatch(s, patchBody)
+		desc = proseWithoutSchemaPatch(desc)
 	}
-	applyMetaToSchema(s, mb)
-	return proseFromCopyText(desc)
+	return desc
+}
+
+// findSchemaPatchInCopy locates a Blueprint+ `+ Schema Patch` block embedded
+// anywhere in a copy element's text. The block runs from its `+ Schema Patch`
+// (or `- Schema Patch`, `* Schema Patch`) header line until the first
+// non-blank line at the same or shallower indentation level. The returned
+// string is the JSON body with common leading whitespace stripped; it is
+// ready to feed directly to json.Unmarshal.
+// Returns ("", false) when no such block is found.
+func findSchemaPatchInCopy(text string) (string, bool) {
+	lines := strings.Split(text, "\n")
+	patchIndent := -1
+	var body []string
+	for _, ln := range lines {
+		if patchIndent < 0 {
+			t := strings.TrimSpace(ln)
+			t = strings.TrimPrefix(t, "+ ")
+			t = strings.TrimPrefix(t, "- ")
+			t = strings.TrimPrefix(t, "* ")
+			if strings.EqualFold(strings.TrimSpace(t), "Schema Patch") {
+				patchIndent = indentOf(ln)
+				continue
+			}
+			continue
+		}
+		if strings.TrimSpace(ln) == "" {
+			body = append(body, "")
+			continue
+		}
+		if indentOf(ln) > patchIndent {
+			body = append(body, strings.TrimSpace(ln))
+			continue
+		}
+		break
+	}
+	for len(body) > 0 && body[0] == "" {
+		body = body[1:]
+	}
+	for len(body) > 0 && body[len(body)-1] == "" {
+		body = body[:len(body)-1]
+	}
+	if len(body) == 0 {
+		return "", false
+	}
+	return strings.Join(body, "\n"), true
+}
+
+// proseWithoutSchemaPatch returns text with any embedded `+ Schema Patch`
+// block (header + deeper-indented body lines) removed. Symmetrical with
+// findSchemaPatchInCopy. Trailing / leading blank lines are trimmed.
+func proseWithoutSchemaPatch(text string) string {
+	lines := strings.Split(text, "\n")
+	out := make([]string, 0, len(lines))
+	patchIndent := -1
+	for _, ln := range lines {
+		if patchIndent < 0 {
+			t := strings.TrimSpace(ln)
+			t = strings.TrimPrefix(t, "+ ")
+			t = strings.TrimPrefix(t, "- ")
+			t = strings.TrimPrefix(t, "* ")
+			if strings.EqualFold(strings.TrimSpace(t), "Schema Patch") {
+				patchIndent = indentOf(ln)
+				continue
+			}
+			out = append(out, ln)
+			continue
+		}
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		if indentOf(ln) > patchIndent {
+			continue
+		}
+		// Non-blank line at same or shallower indent: patch block ends.
+		patchIndent = -1
+		out = append(out, ln)
+	}
+	for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
+		out = out[:len(out)-1]
+	}
+	for len(out) > 0 && strings.TrimSpace(out[0]) == "" {
+		out = out[1:]
+	}
+	return strings.Join(out, "\n")
+}
+
+// applySchemaPatch parses rawJSON as a partial JSON Schema object and merges
+// the recognised conditional applicator keywords (if, then, else, not) onto s.
+// Fields already set on s are not overwritten (first-write wins, consistent
+// with the rest of the Blueprint+ constraint system). Unknown keys in the
+// patch JSON are silently ignored.
+func applySchemaPatch(s *oas.Schema, rawJSON string) {
+	rawJSON = strings.TrimSpace(rawJSON)
+	if rawJSON == "" {
+		return
+	}
+	var patch oas.Schema
+	if err := json.Unmarshal([]byte(rawJSON), &patch); err != nil {
+		return
+	}
+	if patch.If != nil && s.If == nil {
+		s.If = patch.If
+	}
+	if patch.Then != nil && s.Then == nil {
+		s.Then = patch.Then
+	}
+	if patch.Else != nil && s.Else == nil {
+		s.Else = patch.Else
+	}
+	if patch.Not != nil && s.Not == nil {
+		s.Not = patch.Not
+	}
 }
 
 // applyMetaToPathItem writes the unknown `x-*` extensions from a

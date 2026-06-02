@@ -222,7 +222,7 @@ func RefractToOASWithOptions(refract []byte, opts Options) (*oas.Document, error
 	if opts.InfoVersion != "" {
 		doc.Info.Version = opts.InfoVersion
 	}
-	if servers := parseServersMetadata(cat); len(servers) > 0 {
+	if servers := parseServersMetadata(cat, doc.OpenAPI); len(servers) > 0 {
 		doc.Servers = servers
 	}
 	// Blueprint+ Tier-A §5.5 (extended): SUMMARY: → info.summary,
@@ -303,43 +303,7 @@ func RefractToOASWithOptions(refract []byte, opts Options) (*oas.Document, error
 	// stable alphabetical order. Schemas in this section cross-reference
 	// each other via `$ref` instead of inlining, so the document stays
 	// readable at scale.
-	if reg := resolver.registry; len(reg) > 0 {
-		// Blueprint+ Tier-A §12.1: promote a reserved
-		// `## SecuritySchemes (object)` named type into
-		// components.securitySchemes. The reserved name is removed
-		// from the schemas map below so it doesn't double-appear.
-		mson, suppress := extractMSONSecuritySchemes(reg, opts.Diagnostics)
-		if len(mson) > 0 {
-			if doc.Components == nil {
-				doc.Components = &oas.Components{}
-			}
-			if doc.Components.SecuritySchemes == nil {
-				doc.Components.SecuritySchemes = map[string]*oas.SecurityScheme{}
-			}
-			for n, s := range mson {
-				doc.Components.SecuritySchemes[n] = s
-			}
-		}
-		schemas := map[string]*oas.Schema{}
-		for name, def := range reg {
-			if suppress != "" && name == suppress {
-				continue
-			}
-			// Registry already stores the inner typed element (e.g. the
-			// "object" node) - no need to unwrap a dataStructure shell.
-			// `resolver` is already in refs mode, so nested references
-			// between named types stay as $ref here too.
-			if s := resolver.schemaFor(def); s != nil {
-				schemas[name] = s
-			}
-		}
-		if len(schemas) > 0 {
-			if doc.Components == nil {
-				doc.Components = &oas.Components{}
-			}
-			doc.Components.Schemas = schemas
-		}
-	}
+	populateComponentsFromRegistry(doc, resolver, opts.Diagnostics)
 
 	// Emit document-level tags (preserving the order they were first seen
 	// while walking) so consumers see the same grouping that's reflected
@@ -350,6 +314,7 @@ func RefractToOASWithOptions(refract []byte, opts Options) (*oas.Document, error
 	for _, name := range tagInfo.order {
 		t := oas.Tag{Name: name, Description: tagInfo.descriptions[name]}
 		if emit32 {
+			t.Summary = tagInfo.summaries[name]
 			t.Parent = tagInfo.parents[name]
 			t.Kind = tagInfo.kinds[name]
 		}
@@ -400,7 +365,66 @@ func RefractToOASWithOptions(refract []byte, opts Options) (*oas.Document, error
 		normalizeNullableForJSONSchema(doc)
 	}
 
+	// OAS 3.1+ deprecated the singular `example` keyword in Schema Objects
+	// in favour of the JSON Schema 2020-12 `examples` array. Promote it so
+	// strict 3.1 / 3.2 validators don't warn about the deprecated field.
+	if isOAS31OrLater(doc.OpenAPI) {
+		normalizeExamplesForJSONSchema(doc)
+	}
+
+	// OAS 3.0 doesn't have the `const` keyword (JSON Schema draft-04).
+	// Fall back to `enum: [value]` so 3.0 validators still accept it.
+	if strings.HasPrefix(doc.OpenAPI, "3.0") {
+		normalizeConstForOAS30(doc)
+	}
+
 	return doc, nil
+}
+
+// populateComponentsFromRegistry builds components.schemas and
+// components.securitySchemes from the MSON named-type registry. Extracted from
+// RefractToOASWithOptions to keep that function's cyclomatic complexity within
+// the project limit.
+func populateComponentsFromRegistry(doc *oas.Document, resolver *schemaResolver, diag *Diagnostics) {
+	reg := resolver.registry
+	if len(reg) == 0 {
+		return
+	}
+	// Blueprint+ Tier-A §12.1: promote a reserved
+	// `## SecuritySchemes (object)` named type into
+	// components.securitySchemes. The reserved name is removed from the
+	// schemas map below so it doesn't double-appear.
+	mson, suppress := extractMSONSecuritySchemes(reg, diag)
+	if len(mson) > 0 {
+		if doc.Components == nil {
+			doc.Components = &oas.Components{}
+		}
+		if doc.Components.SecuritySchemes == nil {
+			doc.Components.SecuritySchemes = map[string]*oas.SecurityScheme{}
+		}
+		for n, s := range mson {
+			doc.Components.SecuritySchemes[n] = s
+		}
+	}
+	schemas := map[string]*oas.Schema{}
+	for name, def := range reg {
+		if suppress != "" && name == suppress {
+			continue
+		}
+		// Registry already stores the inner typed element (e.g. the
+		// "object" node) - no need to unwrap a dataStructure shell.
+		// resolver is already in refs mode, so nested references between
+		// named types stay as $ref here too.
+		if s := resolver.schemaFor(def); s != nil {
+			schemas[name] = s
+		}
+	}
+	if len(schemas) > 0 {
+		if doc.Components == nil {
+			doc.Components = &oas.Components{}
+		}
+		doc.Components.Schemas = schemas
+	}
 }
 
 // normalizeNullableForJSONSchema converts every `Nullable: true` schema
@@ -444,7 +468,37 @@ func normalizeNullableForJSONSchema(doc *oas.Document) {
 	})
 }
 
-// applyVersion normalises an OAS version string and sets it on doc. For
+// normalizeExamplesForJSONSchema promotes schema.Example (singular,
+// deprecated in OAS 3.1+) to schema.Examples (array, JSON Schema 2020-12).
+// Applied after the nullable walk so TypeList-promoted schemas benefit too.
+// Only runs when the target is 3.1 or 3.2.
+func normalizeExamplesForJSONSchema(doc *oas.Document) {
+	walkSchemas(doc, func(s *oas.Schema) {
+		if s == nil || s.Example == nil || len(s.Examples) > 0 {
+			return
+		}
+		s.Examples = []any{s.Example}
+		s.Example = nil
+	})
+}
+
+// normalizeConstForOAS30 translates schema.Const to schema.Enum: [value]
+// when the target is OAS 3.0, which uses JSON Schema draft-04 and does not
+// have the `const` keyword. When Enum is already set, Const is simply
+// dropped (the enum provides equivalent validation semantics).
+func normalizeConstForOAS30(doc *oas.Document) {
+	walkSchemas(doc, func(s *oas.Schema) {
+		if s == nil || s.Const == nil {
+			return
+		}
+		if len(s.Enum) == 0 {
+			s.Enum = []any{s.Const}
+		}
+		s.Const = nil
+	})
+}
+
+// applyVersion normalises an OAS version string and sets it on doc.
 // 3.1 / 3.2 we also emit jsonSchemaDialect so consumers know which schema
 // vocabulary the components were built against. (3.2 reuses 3.1's
 // dialect - the 3.2 release notes are explicit about that.)
@@ -644,36 +698,60 @@ func assignAnchors(doc *oas.Document) {
 //
 //	HOST: https://api.example.com
 //	HOST: https://staging.example.com - Staging
-//	SERVER: https://sandbox.example.com - Sandbox sandbox
+//	HOST: https://sandbox.example.com - Sandbox | sandbox
 //
 // produce one Server entry each, in source order. The optional description
 // is whatever follows the first " - " separator (space-dash-space) so URLs
-// containing dashes (almost all of them) round-trip cleanly.
-func parseServersMetadata(cat *element) []oas.Server {
+// containing dashes (almost all of them) round-trip cleanly. An optional
+// ` | name` suffix after the description sets server.name (OAS 3.2+).
+func parseServersMetadata(cat *element, oasVersion string) []oas.Server {
 	raws := metadataValuesAll(cat, "HOST", "SERVER")
 	if len(raws) == 0 {
 		return nil
 	}
+	emit32 := strings.HasPrefix(oasVersion, "3.2")
 	out := make([]oas.Server, 0, len(raws))
 	for _, raw := range raws {
-		url, desc := splitServerEntry(raw)
+		url, desc, name := splitServerEntry3(raw)
 		if url == "" {
 			continue
 		}
-		out = append(out, oas.Server{URL: url, Description: desc})
+		s := oas.Server{URL: url, Description: desc}
+		if emit32 && name != "" {
+			s.Name = name
+		}
+		out = append(out, s)
 	}
 	return out
+}
+
+// splitServerEntry splits "url - description | name" into its three parts.
+// The " - " separator (space-dash-space) divides URL from description; a
+// subsequent " | " separator divides description from the optional name
+// (OAS 3.2+ server.name). Missing parts return "".
+func splitServerEntry3(raw string) (url, desc, name string) {
+	raw = strings.TrimSpace(raw)
+	if i := strings.Index(raw, " - "); i >= 0 {
+		url = strings.TrimSpace(raw[:i])
+		rest := strings.TrimSpace(raw[i+3:])
+		if j := strings.Index(rest, " | "); j >= 0 {
+			desc = strings.TrimSpace(rest[:j])
+			name = strings.TrimSpace(rest[j+3:])
+		} else {
+			desc = rest
+		}
+		return url, desc, name
+	}
+	return raw, "", ""
 }
 
 // splitServerEntry splits "url - description" into (url, description),
 // using " - " as the separator so dashes inside URLs survive. Trailing /
 // leading whitespace is trimmed on both sides. Missing description → "".
+// Kept for backward compatibility (used by applyMetaKey for Docs: parsing).
 func splitServerEntry(raw string) (string, string) {
-	raw = strings.TrimSpace(raw)
-	if i := strings.Index(raw, " - "); i >= 0 {
-		return strings.TrimSpace(raw[:i]), strings.TrimSpace(raw[i+3:])
-	}
-	return raw, ""
+	u, d, _ := splitServerEntry3(raw)
+	return u, d
 }
 
 // applyInfoLicenseAndSummary reads SUMMARY / LICENSE / LICENSE-ID /
@@ -787,6 +865,7 @@ func collectCategoryCopy(cat *element, consumed map[int]bool) string {
 type walkCtx struct {
 	tag                 string
 	parentTag           string
+	tagSummary          string // OAS 3.2+ tags[].summary, from + Meta Summary: key
 	tagDesc             string
 	tagExt              map[string]any
 	tagKind             string
@@ -806,6 +885,7 @@ type tagRegistry struct {
 	order        []string
 	seen         map[string]bool
 	parents      map[string]string
+	summaries    map[string]string // OAS 3.2+ tags[].summary
 	descriptions map[string]string
 	kinds        map[string]string
 	extensions   map[string]map[string]any
@@ -815,19 +895,24 @@ func newTagRegistry() *tagRegistry {
 	return &tagRegistry{
 		seen:         map[string]bool{},
 		parents:      map[string]string{},
+		summaries:    map[string]string{},
 		descriptions: map[string]string{},
 		kinds:        map[string]string{},
 		extensions:   map[string]map[string]any{},
 	}
 }
 
-func (tr *tagRegistry) record(name, parent, desc, kind string, ext map[string]any) {
+
+func (tr *tagRegistry) recordWithSummary(name, parent, summary, desc, kind string, ext map[string]any) {
 	if !tr.seen[name] {
 		tr.seen[name] = true
 		tr.order = append(tr.order, name)
 		if parent != "" {
 			tr.parents[name] = parent
 		}
+	}
+	if summary != "" && tr.summaries[name] == "" {
+		tr.summaries[name] = summary
 	}
 	// Record description even when the tag was already seen - the first
 	// non-empty wins. (A group's prose is declared on the category, so it
@@ -890,9 +975,13 @@ func walkResources(parent *element, ctx walkCtx, doc *oas.Document, resolver *sc
 				meta, consumedMeta := extractMetaFromCategory(&c)
 				child.tagDesc = collectCategoryCopy(&c, consumedMeta)
 				child.tagKind = ""
+				child.tagSummary = ""
 				if meta != nil {
 					if meta.Kind != "" {
 						child.tagKind = meta.Kind
+					}
+					if meta.Summary != "" {
+						child.tagSummary = meta.Summary
 					}
 					if len(meta.Extensions) > 0 {
 						// Copy so siblings can't mutate it.
@@ -914,7 +1003,7 @@ func walkResources(parent *element, ctx walkCtx, doc *oas.Document, resolver *sc
 			walkResources(&c, child, doc, resolver, tags)
 		case "resource":
 			if ctx.tag != "" {
-				tags.record(ctx.tag, ctx.parentTag, ctx.tagDesc, ctx.tagKind, ctx.tagExt)
+				tags.recordWithSummary(ctx.tag, ctx.parentTag, ctx.tagSummary, ctx.tagDesc, ctx.tagKind, ctx.tagExt)
 			}
 			addResource(&c, ctx, doc, resolver)
 		}
@@ -1137,6 +1226,12 @@ func operationFromTransition(tr *element, resolver *schemaResolver, resourceDefa
 					if rb != nil {
 						op.RequestBody = rb
 					}
+					// Convert `+ Headers` on the request into in:header parameters.
+					// appendUniqueParam ensures duplicates across multi-transaction
+					// examples are deduplicated (first declaration wins).
+					for _, hp := range requestHeaderParams(txc.Attributes.Headers) {
+						op.Parameters = appendUniqueParam(op.Parameters, hp)
+					}
 				case "httpResponse":
 					status := txc.Attributes.StatusCode.Content
 					if status == "" {
@@ -1235,7 +1330,7 @@ func requestBodyFromElement(req *element, resolver *schemaResolver, actionDefaul
 		mt.Schema = schema
 	}
 	if body != "" {
-		example := parseExample(body)
+		example := stripBlueprintReservedKeys(parseExample(body))
 		addExample(mt, exampleCounts, contentType, exampleName, example)
 		if mt.Schema == nil {
 			mt.Schema = inferSchemaFromExample(example)
@@ -1274,7 +1369,7 @@ func applyBody(resp *oas.Response, el *element, resolver *schemaResolver, resour
 		mt.Schema = schema
 	}
 	if body != "" {
-		example := parseExample(body)
+		example := stripBlueprintReservedKeys(parseExample(body))
 		key := status + "\x00" + contentType
 		addExample(mt, exampleCounts, key, exampleName, example)
 		if mt.Schema == nil {
@@ -1393,6 +1488,25 @@ func parseExample(body string) any {
 	return body
 }
 
+// stripBlueprintReservedKeys removes Blueprint+ pseudo-member keys that must
+// never appear in OAS example bodies. Currently the only reserved key is
+// "Schema Patch" — Drafter synthesises a messageBody asset from every parsed
+// MSON member, including the `+ Schema Patch` pseudo-member, so without this
+// scrub the patch JSON block leaks into the rendered curl example as
+// `"Schema Patch": ""`.
+func stripBlueprintReservedKeys(v any) any {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return v
+	}
+	for k := range m {
+		if strings.EqualFold(strings.TrimSpace(k), "Schema Patch") {
+			delete(m, k)
+		}
+	}
+	return v
+}
+
 func applyHeaders(resp *oas.Response, headers headersValue) {
 	for _, m := range headers.Content {
 		name := m.Content.Key.Content
@@ -1402,10 +1516,129 @@ func applyHeaders(resp *oas.Response, headers headersValue) {
 		if resp.Headers == nil {
 			resp.Headers = map[string]*oas.Header{}
 		}
-		resp.Headers[name] = &oas.Header{
-			Schema: &oas.Schema{Type: "string", Example: m.Content.Value.contentString()},
+		example, required, deprecated := parseHeaderAnnotations(m.Content.Value.contentString())
+		h := &oas.Header{
+			Description: strings.TrimSpace(m.Meta.Description.Content),
+			Required:    required,
+			Deprecated:  deprecated,
+			Schema:      &oas.Schema{Type: "string"},
 		}
+		if example != "" {
+			h.Schema.Example = example
+		}
+		resp.Headers[name] = h
 	}
+}
+
+// requestHeaderParams converts the `+ Headers` block of an httpRequest into
+// OAS Parameter objects with `in: "header"`. Content-Type is skipped because
+// it is already captured as the media-type key.
+//
+// Blueprint+ convention: trailing annotations on the header value are
+// recognised and stripped (see parseHeaderAnnotations):
+//   - `(required)`   → `required: true`
+//   - `(optional)`   → required omitted (default)
+//   - `(deprecated)` → `deprecated: true`
+//
+// Example APIB source:
+//
+//   - Request (application/json)
+//   - Headers
+//     Authorization: Bearer token (required)
+//     X-Legacy-Token: abc (deprecated)
+//     X-Request-ID: abc-123
+func requestHeaderParams(headers headersValue) []*oas.Parameter {
+	var out []*oas.Parameter
+	for _, m := range headers.Content {
+		name := m.Content.Key.Content
+		if name == "" || strings.EqualFold(name, "Content-Type") {
+			continue
+		}
+		example, required, deprecated := parseHeaderAnnotations(m.Content.Value.contentString())
+		// typeAttributes fallback (not emitted by stock Drafter for + Headers,
+		// but honoured for forward compatibility).
+		if !required {
+			for _, ta := range m.Attributes.TypeAttributes.Content {
+				if ta.Content == "required" {
+					required = true
+					break
+				}
+			}
+		}
+		if !deprecated {
+			for _, ta := range m.Attributes.TypeAttributes.Content {
+				if ta.Content == "deprecated" {
+					deprecated = true
+					break
+				}
+			}
+		}
+		p := &oas.Parameter{
+			Name:        name,
+			In:          "header",
+			Required:    required,
+			Deprecated:  deprecated,
+			Description: strings.TrimSpace(m.Meta.Description.Content),
+			Schema:      &oas.Schema{Type: "string"},
+		}
+		if example != "" {
+			p.Schema.Example = example
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// parseHeaderAnnotations strips all trailing Blueprint+ annotations from a
+// header value string and returns the clean example value plus flags.
+// Annotations may appear in any order and are matched case-insensitively.
+// A leading space is required before the opening parenthesis so bare values
+// that happen to end in a parenthesised word are not misidentified.
+//
+// Recognised annotations:
+//   - (required)   → required = true
+//   - (optional)   → no-op (default is optional)
+//   - (deprecated) → deprecated = true
+func parseHeaderAnnotations(raw string) (value string, required, deprecated bool) {
+	s := strings.TrimSpace(raw)
+	for {
+		lower := strings.ToLower(s)
+		switch {
+		case strings.HasSuffix(lower, " (required)") || lower == "(required)":
+			required = true
+			if lower == "(required)" {
+				s = ""
+			} else {
+				s = strings.TrimSpace(s[:len(s)-len(" (required)")])
+			}
+			continue
+		case strings.HasSuffix(lower, " (optional)") || lower == "(optional)":
+			if lower == "(optional)" {
+				s = ""
+			} else {
+				s = strings.TrimSpace(s[:len(s)-len(" (optional)")])
+			}
+			continue
+		case strings.HasSuffix(lower, " (deprecated)") || lower == "(deprecated)":
+			deprecated = true
+			if lower == "(deprecated)" {
+				s = ""
+			} else {
+				s = strings.TrimSpace(s[:len(s)-len(" (deprecated)")])
+			}
+			continue
+		}
+		break
+	}
+	return s, required, deprecated
+}
+
+// parseHeaderValue is a thin wrapper around parseHeaderAnnotations that
+// returns only the value and required flag. Used by callers that predate
+// the deprecated annotation (kept for backwards compatibility).
+func parseHeaderValue(raw string) (value string, required bool) {
+	v, r, _ := parseHeaderAnnotations(raw)
+	return v, r
 }
 
 func primaryContentType(el *element) string {
@@ -1581,6 +1814,11 @@ func paramsFromHrefVariables(hv hrefVariablesValue, defaultIn, path string, diag
 				if ta.Content == "required" {
 					p.Required = true
 				}
+			}
+		}
+		for _, ta := range m.Attributes.TypeAttributes.Content {
+			if ta.Content == "deprecated" {
+				p.Deprecated = true
 			}
 		}
 		out = append(out, p)

@@ -146,6 +146,32 @@ func (r *schemaResolver) objectSchema(el *element, visited map[string]bool) *oas
 			if name == "" {
 				continue
 			}
+			// Blueprint+ `+ Schema Patch` pseudo-member: when Drafter
+			// successfully parses all MSON members it treats `+ Schema
+			// Patch` as an extra member with key "Schema Patch" (string
+			// type) and the indented JSON body as the member description.
+			// Intercept it and apply the conditionals to s rather than
+			// leaking a spurious property named "Schema Patch".
+			if strings.EqualFold(strings.TrimSpace(name), "Schema Patch") {
+				if valSchema != nil {
+					switch {
+					case valSchema.Description != "":
+						applySchemaPatch(s, valSchema.Description)
+					case valSchema.Example != nil:
+						if ex, ok := valSchema.Example.(string); ok {
+							applySchemaPatch(s, ex)
+						}
+					default:
+						// Drafter parsed the JSON body as a nested object
+						// schema rather than a string description. Re-serialise
+						// and apply it as a patch.
+						if b, err := json.Marshal(valSchema); err == nil {
+							applySchemaPatch(s, string(b))
+						}
+					}
+				}
+				continue
+			}
 			props[name] = valSchema
 			if isRequired {
 				required = append(required, name)
@@ -235,6 +261,11 @@ func (r *schemaResolver) decodeSelectSchema(c *element, visited map[string]bool)
 		optSchema := &oas.Schema{
 			Type:       "object",
 			Properties: map[string]*oas.Schema{},
+		}
+		// Carry option title when Drafter populates meta.title on the option
+		// element (e.g. authored as `+ Properties (title)` in extended MSON).
+		if t := opt.Meta.Title.Content; t != "" {
+			optSchema.Title = t
 		}
 		for _, om := range opt.contentArray() {
 			if om.Element != "member" {
@@ -464,12 +495,12 @@ func applyTypeAttributes(s *oas.Schema, attrs classesList) {
 				// fixed on a scalar: the only valid value is the example.
 				s.Enum = []any{s.Example}
 			}
-	case "fixed-type", "fixedType": // MSON source: "fixed-type"; Drafter Refract: "fixedType"
-		if s.Type == "object" {
-			// fixed-type on an object: close additional properties but
-			// leave individual property values unconstrained.
-			s.AdditionalProperties = false
-		}
+		case "fixed-type", "fixedType": // MSON source: "fixed-type"; Drafter Refract: "fixedType"
+			if s.Type == "object" {
+				// fixed-type on an object: close additional properties but
+				// leave individual property values unconstrained.
+				s.AdditionalProperties = false
+			}
 		case "default":
 			if s.Default == nil && s.Example != nil {
 				s.Default = s.Example
@@ -573,6 +604,36 @@ var (
 // with prose paragraphs followed by member definitions.
 // ---------------------------------------------------------------------------
 
+// collectIndentedBlock returns the lines that form an indented body under the
+// header at lines[startIdx] (whose indent level is parentIndent). Blank lines
+// are included verbatim; the first non-blank line at ≤ parentIndent terminates
+// the block. Leading and trailing blank lines are trimmed. The returned newIdx
+// is the last consumed index (caller should assign i = newIdx).
+func collectIndentedBlock(lines []string, startIdx, parentIndent int) (body []string, newIdx int) {
+	i := startIdx
+	for i+1 < len(lines) {
+		next := lines[i+1]
+		if strings.TrimSpace(next) == "" {
+			body = append(body, "")
+			i++
+			continue
+		}
+		if indentOf(next) > parentIndent {
+			body = append(body, strings.TrimSpace(next))
+			i++
+			continue
+		}
+		break
+	}
+	for len(body) > 0 && body[0] == "" {
+		body = body[1:]
+	}
+	for len(body) > 0 && body[len(body)-1] == "" {
+		body = body[:len(body)-1]
+	}
+	return body, i
+}
+
 // - Prose (kept as the cleaned description)
 // - Flat member lines → properties + required
 // - `+ One Of` blocks → oneOf schemas
@@ -632,6 +693,19 @@ func (r *schemaResolver) recoverMembersFromDescription(s *oas.Schema, visited ma
 
 		// Flat member line (top-level, not inside One Of)
 		if !inOneOf && (strings.HasPrefix(trimmed, "+ ") || strings.HasPrefix(trimmed, "- ")) {
+			// Intercept `+ Schema Patch` before parseMemberLine so it is
+			// never added to props. Collect its indented JSON body and
+			// apply it as a patch.
+			suffix := strings.TrimSpace(trimmed[2:])
+			if strings.EqualFold(suffix, "Schema Patch") {
+				inProse = false
+				body, newIdx := collectIndentedBlock(lines, i, indentOf(line))
+				i = newIdx
+				if len(body) > 0 {
+					applySchemaPatch(s, strings.Join(body, "\n"))
+				}
+				continue
+			}
 			if m := parseMemberLine(trimmed); m != nil {
 				inProse = false
 				ps := r.schemaForRecoveredMember(m, visited)

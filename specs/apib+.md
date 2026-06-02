@@ -52,11 +52,17 @@ LICENSE-URL: https://example.com/LICENSE
 ```
 HOST:   https://api.prod.com    - Production
 SERVER: https://api.sandbox.com - Sandbox
+HOST:   https://api.dev.com     - Dev | dev-server
 ```
 
 `HOST` and `SERVER` are aliases. May appear any number of times in
 source order. The first ` - ` (space-dash-space) splits URL from
-description.
+description. On OAS 3.2+ a trailing ` | name` suffix after the
+description sets `server.name`:
+
+```
+HOST: https://api.prod.com - Production | prod
+```
 
 → `servers[]`.
 
@@ -125,6 +131,7 @@ A new section type, placed immediately under a `# Group`,
 | `Docs`        | `externalDocs.url` / `description` | Form: `Docs: <url> - <description>`.                                               |
 | `Security`    | `security`                         | Comma-separated. Scopes via `Security: OAuth2 read,write`. Empty → `security: []`. |
 | `Kind`        | `tags[].kind`                      | Group scope only, OAS 3.2+. Recognised: `nav`, `badge`, `audience`.                |
+| `Summary`     | `tags[].summary`                   | Group scope only, OAS 3.2+. Short display name for the tag.                        |
 
 #### Scope
 
@@ -151,6 +158,7 @@ URI-template inference into header / cookie locations.
 + Parameters
     + traceId: abc123 (string, optional) - `[header:X-Trace-Id]` Trace id.
     + sessionId (string, optional) - `[cookie]` Auth cookie.
+    + legacySort (string, optional, deprecated) - Sort field (use `sort` instead).
 ```
 
 | Prefix                     | Meaning                                                                    |
@@ -164,7 +172,77 @@ The prefix must be at the very start of the description (whitespace
 tolerated) and is stripped from the rendered description. When
 present it overrides URI-template inference.
 
+The MSON `(deprecated)` type attribute on a parameter → `parameter.deprecated: true`:
+
+```
++ sort (string, optional, deprecated) - Use `order_by` instead.
+```
+
 → `parameters[]` on the matching `paths.<uri>.<method>`.
+
+---
+
+### Request headers
+
+Standard API Blueprint `+ Headers` blocks are plain `Name: value`
+pre-formatted code blocks — Drafter has no syntax for marking an
+individual header as required. Blueprint+ rescues this with a trailing
+parenthesised annotation on the value:
+
+```apib
+### Create Article [POST]
+
++ Request (application/json)
+    + Headers
+
+            Authorization: Bearer token (required)
+            X-Idempotency-Key: 550e8400-e29b (required)
+            X-Request-ID: abc-123
+            Accept-Language: en
+```
+
+| Trailing annotation | OAS effect                                      |
+|---------------------|-------------------------------------------------|
+| `(required)`        | `parameters[].required: true`                   |
+| `(optional)`        | `parameters[].required` omitted (default)       |
+| `(deprecated)`      | `parameters[].deprecated: true`                 |
+| *(absent)*          | `parameters[].required` omitted (default)       |
+
+Annotations may be combined in any order:
+`Authorization: Bearer token (required) (deprecated)`.
+
+The annotations are **case-insensitive** and are **stripped from the OAS
+`schema.example`** — the example value becomes the part before the first
+annotation:
+
+```yaml
+# Input:  Authorization: Bearer token (required)
+# Output:
+parameters:
+  - name: Authorization
+    in: header
+    required: true
+    schema:
+      type: string
+      example: Bearer token
+```
+
+The same annotation convention applies to **response headers** (`+ Headers`
+inside `+ Response`). Since OAS response headers are `Header` objects (not
+`Parameter` objects), `(required)` maps to `header.required` and
+`(deprecated)` maps to `header.deprecated`.
+
+> **Why a value-field annotation and not MSON?**  
+> Drafter parses `+ Headers` as a flat code block, not MSON. It folds
+> the entire `Name: value (annotation)` line into the value field
+> verbatim. Blueprint+ post-processes this field to rescue the
+> annotation — no Drafter changes required. The convention follows the
+> same parenthesised-annotation style MSON uses everywhere else
+> (`(string, required)`, `(enum)`, etc.), making it readable to anyone
+> already familiar with API Blueprint.
+
+→ `parameters[]` with `in: header` on the matching
+`paths.<uri>.<method>`.
 
 ---
 
@@ -432,9 +510,85 @@ A URL-safe article identifier.
 | `MinItems`         | `minItems`           | integer | Arrays.                                      |
 | `MaxItems`         | `maxItems`           | integer | Arrays.                                      |
 | `UniqueItems`      | `uniqueItems`        | boolean | `true`/`false`/`yes`/`no`.                   |
+| `ReadOnly`         | `readOnly`           | boolean | Marks a property as read-only (e.g. server-generated `id`). |
+| `WriteOnly`        | `writeOnly`          | boolean | Marks a property as write-only (e.g. `password`). |
+| `Deprecated`       | `deprecated`         | boolean | Marks the property schema as deprecated.     |
+| `Const`            | `const` / `enum`     | any     | The only valid value. On OAS 3.1/3.2: `const: value`. On OAS 3.0: falls back to `enum: [value]` (JSON Schema draft-04 has no `const`). |
+| `Discriminator`    | `discriminator.propertyName` | string | Named-type scope only. Sets the OAS `discriminator` object on a `oneOf` parent schema. The value is the property name used as a discriminator (e.g. `source`). Pair with a `One Of` block whose each variant declares that property as `(string, required, fixed)`. |
 
 Unknown keys in a `+ Meta` block under a member still fall through to
 `x-*` extensions (see [Extensions](#extensions)).
+
+---
+
+### `+ Schema Patch` (cross-field / conditional constraints)
+
+MSON has no syntax for JSON Schema conditional applicators
+(`if / then / else / not`). Blueprint+ provides a `+ Schema Patch`
+escape hatch that merges a raw JSON Schema fragment onto the
+generated schema for a named type *after* all MSON conversion is
+done.
+
+#### Syntax
+
+Place a `+ Schema Patch` block inside a named type definition in
+`# Data Structures`. The indented body must be a valid JSON object
+whose keys are JSON Schema 2020-12 / OAS 3.1 conditional keywords.
+
+```apib
+## ArticleCreateRequest (object)
+An article creation payload.
+
++ accessMode: public (string, required) - How the article is shared.
++ partnerAvailability (array[string]) - Partner IDs for exclusive articles.
+
++ Schema Patch
+        {
+          "if":   { "properties": { "accessMode": { "const": "exclusive" } },
+                    "required":   [ "accessMode" ] },
+          "then": { "required":   [ "partnerAvailability" ] },
+          "else": { "properties": { "partnerAvailability": { "maxItems": 0 } } }
+        }
+```
+
+The MSON members (`+ accessMode`, `+ partnerAvailability`) are
+converted normally; the patch JSON is deep-merged on top of the
+resulting schema. Stock Drafter folds the `+ Schema Patch` block
+into the description text of the named type — the converter rescues
+it, strips it from the rendered `description`, and applies it.
+
+#### Recognised patch keys
+
+| JSON Schema keyword | Notes                                           |
+|---------------------|-------------------------------------------------|
+| `if`                | Condition schema.                               |
+| `then`              | Applied when `if` matches.                      |
+| `else`              | Applied when `if` does not match.               |
+| `not`               | Schema that must **not** match.                 |
+
+Unknown keys in the patch object are silently ignored (forward
+compatibility). A malformed JSON body is a no-op (the schema is
+emitted without the patch).
+
+> **First-write wins**: if a field is already set on the schema (e.g.
+> a `not` from another source), the patch does not overwrite it.
+
+#### OAS version note
+
+`if / then / else` and `not` are valid in OAS 3.1+ (JSON Schema
+2020-12 dialect). They are emitted as-is in OAS 3.0 output too, but
+strict OAS 3.0 validators will flag them as unknown keywords.
+
+---
+
+#### `schema.examples` vs `schema.example` (OAS 3.1+)
+
+The singular `example` keyword on Schema Objects is **deprecated** in
+OAS 3.1 / 3.2 in favour of the JSON Schema 2020-12 `examples` array.
+The converter automatically promotes `example: value` → `examples: [value]`
+when `--oas-version` is 3.1 or 3.2, keeping 3.0 output unchanged.
+
+Authors do not need to change their APIB source — the promotion is transparent.
 
 ---
 

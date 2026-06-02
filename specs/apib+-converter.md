@@ -56,6 +56,22 @@ silently throw away every per-member description the author wrote.
 Hand-written `+ Schema` blocks are honoured only when no
 `+ Attributes` is present.
 
+### 3.2 `+ Schema Patch` — cross-field / conditional constraints
+
+MSON has no syntax for JSON Schema conditional applicators
+(`if / then / else / not`). A `+ Schema Patch` block placed inside a
+named type definition in `# Data Structures` merges a raw JSON Schema
+fragment onto the generated schema after all MSON conversion completes.
+
+Stock Drafter folds the block into the description text; the
+converter rescues it, strips it from the rendered `description`, and
+applies the recognised keys (`if`, `then`, `else`, `not`). Unknown
+keys are silently ignored. A malformed JSON body is a no-op.
+
+First-write wins: if a field is already set on the schema, the patch
+does not overwrite it. See `specs/apib+.md §Schema Patch` for the
+full syntax reference.
+
 ---
 
 ## 4. Multiple examples per (status, content-type)
@@ -170,39 +186,53 @@ boundaries) are absorbed silently.
 Compact source → target reference. See [`apib+.md`](apib%2B.md) for
 the source-side syntax.
 
-| Source construct                     | OpenAPI JSON Pointer                                  | Cardinality   |
-|--------------------------------------|-------------------------------------------------------|---------------|
-| `# <API title>`                      | `/info/title`                                         | 1             |
-| `VERSION:` (or aliases)              | `/info/version`                                       | 1             |
-| `SUMMARY:`                           | `/info/summary`                                       | 0..1          |
-| `LICENSE:`                           | `/info/license/name`                                  | 0..1          |
-| `LICENSE-ID:`                        | `/info/license/identifier`                            | 0..1          |
-| `LICENSE-URL:`                       | `/info/license/url`                                   | 0..1          |
-| Top-level `copy` blocks              | `/info/description`                                   | 0..1          |
-| `HOST:` / `SERVER:`                  | `/servers/{i}/url`, `/servers/{i}/description`        | 0..n          |
-| `WEBHOOK_GROUPS:`                    | routing flag                                          | —             |
-| `SECURITY:` (document)               | `/security`                                           | 0..1          |
-| `# Group <name>`                     | `/tags/{i}/name`                                      | 0..n          |
-| `# Group <name>` prose               | `/tags/{i}/description`                               | 0..1          |
-| `## <Title> [<URI>]`                 | `/paths/<URI>` (or `/webhooks/<group>`)               | 0..n          |
-| `### <Title> [<METHOD>]`             | `/paths/<URI>/<method>`                               | per resource  |
-| `+ Meta → OperationId`               | `/paths/<URI>/<method>/operationId`                   | 0..1          |
-| `+ Meta → Tags`                      | `/paths/<URI>/<method>/tags`                          | 0..1          |
-| `+ Meta → Deprecated`                | `/paths/<URI>/<method>/deprecated`                    | 0..1          |
-| `+ Meta → Docs`                      | `/paths/<URI>/<method>/externalDocs/url`              | 0..1          |
-| `+ Meta → Security`                  | `/paths/<URI>/<method>/security`                      | 0..1          |
-| `+ Meta → Kind` (group scope)        | `/tags/{i}/kind`                                      | 0..1 (3.2+)   |
-| `+ Parameters` (path)                | `/paths/<URI>/parameters/{i}`                         | 0..n          |
-| `+ Parameters` (query/header/cookie) | `/paths/<URI>/<method>/parameters/{i}`                | 0..n          |
-| `+ Request (<ct>)`                   | `/paths/.../requestBody/content/<ct>`                 | 0..1          |
-| `+ Request <Title>`                  | `…/examples/<Title>`                                  | 0..n          |
-| `+ Response <code> (<ct>)`           | `/paths/.../responses/<code>/content/<ct>`            | 0..n          |
-| `+ Response <code> - <title>`        | `/paths/.../responses/<code>/{summary\|description}`  | 0..1          |
-| `+ Headers` (response)               | `/paths/.../responses/<code>/headers/<name>`          | 0..n          |
-| `+ Attributes (<Type>)`              | `…/schema` (inlined or `$ref`)                        | precedence §3 |
-| `+ Schema` (raw JSON Schema)         | `…/schema`                                            | fallback only |
-| `# Data Structures`                  | `/components/schemas/<Name>`                          | 0..n          |
-| `## SecuritySchemes (object)`        | `/components/securitySchemes/<MemberName>`            | 0..n          |
-| Sidecar JSON                         | same as above (sidecar wins on collision)             | —             |
-| `<Foo-Bar>: <value>` (unknown)       | `…/x-foo-bar` (target depends on scope)               | 0..n          |
+| Source construct                      | OpenAPI JSON Pointer                                   | Cardinality   |
+|---------------------------------------|--------------------------------------------------------|---------------|
+| `# <API title>`                       | `/info/title`                                          | 1             |
+| `VERSION:` (or aliases)               | `/info/version`                                        | 1             |
+| `SUMMARY:`                            | `/info/summary`                                        | 0..1          |
+| `LICENSE:`                            | `/info/license/name`                                   | 0..1          |
+| `LICENSE-ID:`                         | `/info/license/identifier`                             | 0..1          |
+| `LICENSE-URL:`                        | `/info/license/url`                                    | 0..1          |
+| Top-level `copy` blocks               | `/info/description`                                    | 0..1          |
+| `HOST:` / `SERVER:`                   | `/servers/{i}/url`, `/servers/{i}/description`         | 0..n          |
+| `HOST: … - … \| name` (3.2+)          | `/servers/{i}/name`                                    | 0..n          |
+| `WEBHOOK_GROUPS:`                     | routing flag                                           | —             |
+| `SECURITY:` (document)                | `/security`                                            | 0..1          |
+| `# Group <name>`                      | `/tags/{i}/name`                                       | 0..n          |
+| `# Group <name>` prose                | `/tags/{i}/description`                                | 0..1          |
+| `+ Meta → Summary` (group, 3.2+)      | `/tags/{i}/summary`                                    | 0..1          |
+| `## <Title> [<URI>]`                  | `/paths/<URI>` (or `/webhooks/<group>`)                | 0..n          |
+| `### <Title> [<METHOD>]`              | `/paths/<URI>/<method>`                                | per resource  |
+| `+ Meta → OperationId`                | `/paths/<URI>/<method>/operationId`                    | 0..1          |
+| `+ Meta → Tags`                       | `/paths/<URI>/<method>/tags`                           | 0..1          |
+| `+ Meta → Deprecated`                 | `/paths/<URI>/<method>/deprecated`                     | 0..1          |
+| `+ Meta → Docs`                       | `/paths/<URI>/<method>/externalDocs/url`               | 0..1          |
+| `+ Meta → Security`                   | `/paths/<URI>/<method>/security`                       | 0..1          |
+| `+ Meta → Kind` (group scope)         | `/tags/{i}/kind`                                       | 0..1 (3.2+)   |
+| `+ Parameters` (path)                 | `/paths/<URI>/parameters/{i}`                          | 0..n          |
+| `+ Parameters` (query/header/cookie)  | `/paths/<URI>/<method>/parameters/{i}`                 | 0..n          |
+| `(deprecated)` on `+ Parameters`      | `/paths/…/parameters/{i}/deprecated`                   | 0..1          |
+| `+ Headers` (request)                 | `/paths/.../parameters/{i}` (`in: header`)             | 0..n          |
+| `(required)` on request `+ Headers`   | `/paths/.../parameters/{i}/required`                   | 0..1          |
+| `(deprecated)` on request `+ Headers` | `/paths/.../parameters/{i}/deprecated`                 | 0..1          |
+| `+ Request (<ct>)`                    | `/paths/.../requestBody/content/<ct>`                  | 0..1          |
+| `+ Request <Title>`                   | `…/examples/<Title>`                                   | 0..n          |
+| `+ Response <code> (<ct>)`            | `/paths/.../responses/<code>/content/<ct>`             | 0..n          |
+| `+ Response <code> - <title>`         | `/paths/.../responses/<code>/{summary\|description}`   | 0..1          |
+| `+ Headers` (response)                | `/paths/.../responses/<code>/headers/<name>`           | 0..n          |
+| `(required)` on response `+ Headers`  | `/paths/.../responses/<code>/headers/<name>/required`  | 0..1          |
+| `(deprecated)` on resp `+ Headers`    | `/paths/.../responses/<code>/headers/<name>/deprecated`| 0..1          |
+| `+ Attributes (<Type>)`               | `…/schema` (inlined or `$ref`)                         | precedence §3 |
+| `+ Schema` (raw JSON Schema)          | `…/schema`                                             | fallback only |
+| `+ Schema Patch` (named type)         | `…/schema/if`, `…/schema/then`, `…/schema/else`, `…/schema/not` | 0..1 each |
+| `+ Meta → ReadOnly: true` (member)    | `…/schema/readOnly`                                    | 0..1          |
+| `+ Meta → WriteOnly: true` (member)   | `…/schema/writeOnly`                                   | 0..1          |
+| `+ Meta → Deprecated: true` (member)  | `…/schema/deprecated`                                  | 0..1          |
+| `+ Meta → Const: val` (member)        | `…/schema/const` (3.1+) or `enum:[val]` (3.0)         | 0..1          |
+| `schema.example` (all sources)        | `example` (3.0) or `examples:[…]` (3.1+, auto)        | auto          |
+| `# Data Structures`                   | `/components/schemas/<Name>`                           | 0..n          |
+| `## SecuritySchemes (object)`         | `/components/securitySchemes/<MemberName>`             | 0..n          |
+| Sidecar JSON                          | same as above (sidecar wins on collision)              | —             |
+| `<Foo-Bar>: <value>` (unknown)        | `…/x-foo-bar` (target depends on scope)                | 0..n          |
 

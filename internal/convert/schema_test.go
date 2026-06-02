@@ -598,3 +598,377 @@ func TestObjectSchema_SelectElement(t *testing.T) {
 		t.Errorf("oneOf[0].required = %v, want [sport]", opt.Required)
 	}
 }
+
+// TestObjectSchema_DiscriminatorMeta verifies that a `+ Meta` block on a named
+// type with `+ Discriminator: <field>` produces a schema.discriminator on the
+// parent oneOf schema, and that option titles are preserved when Drafter
+// populates meta.title on the option element.
+func TestObjectSchema_DiscriminatorMeta(t *testing.T) {
+	// Simulate Drafter output for:
+	//
+	//   ## VideoInput (object)
+	//   A tagged-union video input.
+	//
+	//   + Meta
+	//       + Discriminator: source
+	//
+	//   + One Of
+	//       + Properties
+	//           + source: existing (string, required, fixed)
+	//           + id: abc (string, required)
+	//       + Properties
+	//           + source: ingest (string, required, fixed)
+	//           + url: https://x (string, required)
+	//
+	// Drafter folds the `+ Meta` block into meta.description as copy text,
+	// so we inject it there. Option titles come from meta.title on the
+	// option element.
+	descWithMeta := `A tagged-union video input.\n\n+ Meta\n    + Discriminator: source`
+
+	refract := []byte(`{
+	  "element": "parseResult",
+	  "content": [{
+	    "element": "category",
+	    "content": [
+	      {"element":"category","meta":{"classes":{"element":"array","content":[{"element":"string","content":"dataStructures"}]}},
+	       "content":[
+	         {"element":"dataStructure","content":{
+	           "element":"object",
+	           "meta":{"id":{"element":"string","content":"VideoInput"},
+	                   "description":{"element":"string","content":"` + descWithMeta + `"}},
+	           "content":[
+	             {"element":"select","content":[
+	               {"element":"option",
+	                "meta":{"title":{"element":"string","content":"existing"}},
+	                "content":[
+	                 {"element":"member","attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"required"},{"element":"string","content":"fixed"}]}},
+	                  "content":{"key":{"element":"string","content":"source"},"value":{"element":"string","content":"existing"}}},
+	                 {"element":"member","attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"required"}]}},
+	                  "content":{"key":{"element":"string","content":"id"},"value":{"element":"string","content":"abc"}}}
+	               ]},
+	               {"element":"option",
+	                "meta":{"title":{"element":"string","content":"ingest"}},
+	                "content":[
+	                 {"element":"member","attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"required"},{"element":"string","content":"fixed"}]}},
+	                  "content":{"key":{"element":"string","content":"source"},"value":{"element":"string","content":"ingest"}}},
+	                 {"element":"member","attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"required"}]}},
+	                  "content":{"key":{"element":"string","content":"url"},"value":{"element":"string","content":"https://x"}}}
+	               ]}
+	             ]}
+	           ]
+	         }}
+	       ]},
+	      {"element":"resource","attributes":{"href":{"element":"string","content":"/v"}},
+	       "content":[{"element":"transition","meta":{"title":{"element":"string","content":"Post"}},
+	         "content":[{"element":"httpTransaction","content":[
+	           {"element":"httpRequest","attributes":{"method":{"element":"string","content":"POST"}},"content":[
+	             {"element":"dataStructure","content":{"element":"VideoInput"}}
+	           ]},
+	           {"element":"httpResponse","attributes":{"statusCode":{"element":"string","content":"204"}},"content":[]}
+	         ]}]}]
+	      }
+	    ]
+	  }]
+	}`)
+
+	doc, err := RefractToOAS(refract)
+	if err != nil {
+		t.Fatalf("RefractToOAS: %v", err)
+	}
+
+	s := doc.Components.Schemas["VideoInput"]
+	if s == nil {
+		t.Fatal("VideoInput schema missing from components")
+	}
+	// Description should be stripped of the Meta block.
+	if strings.Contains(s.Description, "Discriminator") {
+		t.Errorf("description still contains Meta block: %q", s.Description)
+	}
+	// Discriminator must be set.
+	if s.Discriminator == nil {
+		t.Fatal("expected discriminator on VideoInput, got nil")
+	}
+	if s.Discriminator.PropertyName != "source" {
+		t.Errorf("discriminator.propertyName = %q, want %q", s.Discriminator.PropertyName, "source")
+	}
+	// Two oneOf variants.
+	if len(s.OneOf) != 2 {
+		t.Fatalf("expected 2 oneOf options, got %d", len(s.OneOf))
+	}
+	// Option titles.
+	if s.OneOf[0].Title != "existing" {
+		t.Errorf("oneOf[0].title = %q, want %q", s.OneOf[0].Title, "existing")
+	}
+	if s.OneOf[1].Title != "ingest" {
+		t.Errorf("oneOf[1].title = %q, want %q", s.OneOf[1].Title, "ingest")
+	}
+	// Each variant must have required=[source,...].
+	for i, opt := range s.OneOf {
+		hasSource := false
+		for _, r := range opt.Required {
+			if r == "source" {
+				hasSource = true
+			}
+		}
+		if !hasSource {
+			t.Errorf("oneOf[%d].required does not include 'source': %v", i, opt.Required)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// + Schema Patch (Blueprint+ §15)
+// ---------------------------------------------------------------------------
+
+func TestFindSchemaPatchInCopy_Basic(t *testing.T) {
+	text := "+ Schema Patch\n" +
+		"    {\n" +
+		"      \"if\":   {\"required\":[\"x\"]},\n" +
+		"      \"then\": {\"required\":[\"y\"]}\n" +
+		"    }"
+	body, ok := findSchemaPatchInCopy(text)
+	if !ok {
+		t.Fatal("expected findSchemaPatchInCopy to return ok=true")
+	}
+	// Body should contain both if and then keys.
+	if !strings.Contains(body, `"if"`) {
+		t.Errorf("body missing 'if': %q", body)
+	}
+	if !strings.Contains(body, `"then"`) {
+		t.Errorf("body missing 'then': %q", body)
+	}
+}
+
+func TestFindSchemaPatchInCopy_FusedWithProse(t *testing.T) {
+	text := "Some description here.\n\n" +
+		"+ Schema Patch\n" +
+		"    {\"else\": {\"properties\":{\"x\":{\"maxItems\":0}}}}"
+	body, ok := findSchemaPatchInCopy(text)
+	if !ok {
+		t.Fatal("expected findSchemaPatchInCopy to return ok=true")
+	}
+	if !strings.Contains(body, `"else"`) {
+		t.Errorf("body missing 'else': %q", body)
+	}
+}
+
+func TestFindSchemaPatchInCopy_NotPresent(t *testing.T) {
+	_, ok := findSchemaPatchInCopy("just prose\n+ Meta\n    + Pattern: foo")
+	if ok {
+		t.Error("expected ok=false for text with no Schema Patch block")
+	}
+}
+
+func TestFindSchemaPatchInCopy_DashPrefix(t *testing.T) {
+	text := "- Schema Patch\n    {\"not\":{\"type\":\"null\"}}"
+	body, ok := findSchemaPatchInCopy(text)
+	if !ok {
+		t.Fatal("expected ok=true for dash-prefix Schema Patch")
+	}
+	if !strings.Contains(body, `"not"`) {
+		t.Errorf("body missing 'not': %q", body)
+	}
+}
+
+func TestProseWithoutSchemaPatch_StripsBlock(t *testing.T) {
+	text := "Good description.\n\n" +
+		"+ Schema Patch\n" +
+		"    {\"if\":{\"required\":[\"x\"]}}\n\n" +
+		"After patch."
+	got := proseWithoutSchemaPatch(text)
+	if strings.Contains(got, "Schema Patch") {
+		t.Errorf("proseWithoutSchemaPatch left the header: %q", got)
+	}
+	if strings.Contains(got, `"if"`) {
+		t.Errorf("proseWithoutSchemaPatch left JSON body: %q", got)
+	}
+	if !strings.Contains(got, "Good description.") {
+		t.Errorf("proseWithoutSchemaPatch ate good prose: %q", got)
+	}
+}
+
+func TestApplySchemaPatch_IfThenElse(t *testing.T) {
+	s := &oas.Schema{Type: "object"}
+	patch := `{
+		"if":   {"properties":{"mode":{"const":"exclusive"}},"required":["mode"]},
+		"then": {"required":["partnerIDs"]},
+		"else": {"properties":{"partnerIDs":{"maxItems":0}}}
+	}`
+	applySchemaPatch(s, patch)
+
+	if s.If == nil {
+		t.Fatal("expected s.If to be set")
+	}
+	if s.Then == nil {
+		t.Fatal("expected s.Then to be set")
+	}
+	if s.Else == nil {
+		t.Fatal("expected s.Else to be set")
+	}
+	// Verify if.properties.mode.const was preserved.
+	if s.If.Properties == nil {
+		t.Fatal("s.If.Properties is nil")
+	}
+	mode, ok := s.If.Properties["mode"]
+	if !ok || mode == nil {
+		t.Fatal("s.If.Properties['mode'] missing")
+	}
+	if mode.Const == nil {
+		t.Error("s.If.Properties['mode'].Const should be 'exclusive'")
+	}
+}
+
+func TestApplySchemaPatch_Not(t *testing.T) {
+	s := &oas.Schema{Type: "object"}
+	applySchemaPatch(s, `{"not":{"type":"null"}}`)
+	if s.Not == nil {
+		t.Fatal("expected s.Not to be set")
+	}
+}
+
+func TestApplySchemaPatch_DoesNotOverwrite(t *testing.T) {
+	existing := &oas.Schema{Type: "object", Properties: map[string]*oas.Schema{"x": {Type: "string"}}}
+	s := &oas.Schema{Type: "object", If: existing}
+	applySchemaPatch(s, `{"if":{"required":["y"]}}`)
+	// Pre-existing If must not be overwritten.
+	if s.If != existing {
+		t.Error("applySchemaPatch overwrote an existing If schema")
+	}
+}
+
+func TestApplySchemaPatch_InvalidJSON(t *testing.T) {
+	s := &oas.Schema{Type: "object"}
+	// Must not panic or set anything on malformed input.
+	applySchemaPatch(s, `{broken json`)
+	if s.If != nil || s.Then != nil || s.Else != nil || s.Not != nil {
+		t.Error("applySchemaPatch should be a no-op on invalid JSON")
+	}
+}
+
+func TestExtractConstraintsFromDescription_SchemaPatch(t *testing.T) {
+	desc := "An article request.\n\n" +
+		"+ Schema Patch\n" +
+		"    {\n" +
+		"      \"if\":   {\"properties\":{\"accessMode\":{\"const\":\"exclusive\"}},\"required\":[\"accessMode\"]},\n" +
+		"      \"then\": {\"required\":[\"partnerAvailability\"]},\n" +
+		"      \"else\": {\"properties\":{\"partnerAvailability\":{\"maxItems\":0}}}\n" +
+		"    }"
+	s := &oas.Schema{Type: "object"}
+	cleaned := extractConstraintsFromDescription(s, desc)
+
+	if s.If == nil || s.Then == nil || s.Else == nil {
+		t.Fatalf("expected If/Then/Else set; got if=%v then=%v else=%v", s.If, s.Then, s.Else)
+	}
+	if strings.Contains(cleaned, "Schema Patch") {
+		t.Errorf("cleaned description still contains 'Schema Patch': %q", cleaned)
+	}
+	if !strings.Contains(cleaned, "An article request.") {
+		t.Errorf("cleaned description lost prose: %q", cleaned)
+	}
+
+	// Verify then.required contains partnerAvailability.
+	hasPA := false
+	for _, r := range s.Then.Required {
+		if r == "partnerAvailability" {
+			hasPA = true
+		}
+	}
+	if !hasPA {
+		t.Errorf("then.required missing 'partnerAvailability': %v", s.Then.Required)
+	}
+}
+
+func TestExtractConstraintsFromDescription_MetaAndSchemaPatch(t *testing.T) {
+	// Both + Meta and + Schema Patch in the same description — both should be applied.
+	desc := "Description.\n\n" +
+		"+ Meta\n" +
+		"    + MinLength: 1\n\n" +
+		"+ Schema Patch\n" +
+		"    {\"not\":{\"type\":\"null\"}}"
+	s := &oas.Schema{Type: "string"}
+	cleaned := extractConstraintsFromDescription(s, desc)
+
+	if s.MinLength == nil || *s.MinLength != 1 {
+		t.Errorf("MinLength not applied from Meta block: %v", s.MinLength)
+	}
+	if s.Not == nil {
+		t.Error("Not not applied from Schema Patch block")
+	}
+	if strings.Contains(cleaned, "Meta") || strings.Contains(cleaned, "Schema Patch") {
+		t.Errorf("cleaned description still contains blocks: %q", cleaned)
+	}
+}
+
+// TestSchemaPatch_DrafterParsedAsMember covers the common case where Drafter
+// successfully parses all MSON members but treats `+ Schema Patch` as an
+// extra member (key="Schema Patch", description=JSON body). The converter
+// must intercept it and apply if/then/else without leaking the pseudo-property.
+func TestSchemaPatch_DrafterParsedAsMember(t *testing.T) {
+	refract := []byte(`{
+	  "element":"parseResult",
+	  "content":[{"element":"category","content":[
+	    {"element":"category",
+	     "meta":{"classes":{"element":"array","content":[{"element":"string","content":"dataStructures"}]}},
+	     "content":[
+	       {"element":"dataStructure","content":{
+	         "element":"object","meta":{"id":{"element":"string","content":"ArticleCreateRequest"}},
+	         "content":[
+	           {"element":"member",
+	            "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"required"}]}},
+	            "content":{"key":{"element":"string","content":"accessMode"},"value":{"element":"string","content":"public"}}},
+	           {"element":"member",
+	            "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"optional"}]}},
+	            "content":{"key":{"element":"string","content":"partnerAvailability"},"value":{"element":"array","content":[]}}},
+	           {"element":"member",
+	            "meta":{"description":{"element":"string","content":"{\"if\":{\"properties\":{\"accessMode\":{\"const\":\"exclusive\"}},\"required\":[\"accessMode\"]},\"then\":{\"required\":[\"partnerAvailability\"]},\"else\":{\"properties\":{\"partnerAvailability\":{\"maxItems\":0}}}}"}},
+	            "content":{"key":{"element":"string","content":"Schema Patch"},"value":{"element":"string"}}}
+	         ]
+	       }}
+	     ]}
+	  ]}]
+	}`)
+
+	doc, err := RefractToOAS(refract)
+	if err != nil {
+		t.Fatalf("RefractToOAS: %v", err)
+	}
+	s := doc.Components.Schemas["ArticleCreateRequest"]
+	if s == nil {
+		t.Fatal("ArticleCreateRequest schema missing")
+	}
+
+	// "Schema Patch" must NOT appear as a property.
+	if _, leaked := s.Properties["Schema Patch"]; leaked {
+		t.Error("'Schema Patch' leaked as a property; should have been intercepted")
+	}
+	// Real properties must survive.
+	if s.Properties["accessMode"] == nil {
+		t.Error("accessMode property missing")
+	}
+	if s.Properties["partnerAvailability"] == nil {
+		t.Error("partnerAvailability property missing")
+	}
+	// if/then/else must be applied.
+	if s.If == nil {
+		t.Fatal("s.If not set after Schema Patch interception")
+	}
+	if s.Then == nil {
+		t.Fatal("s.Then not set after Schema Patch interception")
+	}
+	if s.Else == nil {
+		t.Fatal("s.Else not set after Schema Patch interception")
+	}
+	// Spot-check the parsed content.
+	if s.If.Properties["accessMode"] == nil {
+		t.Error("s.If.Properties['accessMode'] missing")
+	}
+	hasPA := false
+	for _, r := range s.Then.Required {
+		if r == "partnerAvailability" {
+			hasPA = true
+		}
+	}
+	if !hasPA {
+		t.Errorf("s.Then.Required missing 'partnerAvailability': %v", s.Then.Required)
+	}
+}
