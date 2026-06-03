@@ -336,6 +336,14 @@ func applyFormatInference(schema *oas.Schema, rawValue *element) {
 
 // arraySchema converts an `array` element. The first child element (if any)
 // describes the item type; with no children we fall back to `string` items.
+//
+// When an MSON array member is annotated with a `+ Meta` block (Blueprint+
+// §14), Drafter — which does not understand `+ Meta` — treats it as an
+// additional sample item of the array.  Those phantom items end up as extra
+// children of this element with constraint-keyword keys (e.g.
+// {element:"object", content:[{key:"MaxItems",value:20}]}).  We detect them
+// via tryExtractMetaFromArrayChild, apply their constraints to s, and skip
+// them so they don't pollute the item-type resolution or example bodies.
 func (r *schemaResolver) arraySchema(el *element, visited map[string]bool) *oas.Schema {
 	children := el.contentArray()
 	var items *oas.Schema
@@ -347,6 +355,13 @@ func (r *schemaResolver) arraySchema(el *element, visited map[string]bool) *oas.
 	}
 	s := &oas.Schema{Type: "array", Items: items}
 	s.Description = extractConstraintsFromDescription(s, el.description())
+	// Apply any Blueprint+ `+ Meta` constraint objects that Drafter leaked
+	// as extra array children (children beyond index 0).
+	for i := 1; i < len(children); i++ {
+		if mb := tryExtractMetaFromArrayChild(&children[i]); mb != nil {
+			applyMetaToSchema(s, mb)
+		}
+	}
 	return s
 }
 
@@ -921,3 +936,59 @@ func (r *schemaResolver) resolveTypeString(typeName string, visited map[string]b
 	// Unknown type — fall back to object
 	return &oas.Schema{Type: "object"}
 }
+
+// tryExtractMetaFromArrayChild inspects an array child element that Drafter
+// generated from a Blueprint+ `+ Meta` block written as an MSON sub-item of
+// an array member.  Drafter does not understand `+ Meta` for dataStructure
+// members and folds the block into the array's content as a phantom sample
+// item.  The phantom is an `object` element whose members are all recognised
+// constraint keywords (MaxItems, MinItems, MaxLength, …).
+//
+// When all member keys in the element are constraint keywords, the function
+// returns a populated *metaBlock so the caller can apply the constraints to
+// the array schema.  Returns nil when the element does not look like a Meta
+// constraint block (i.e. it is a real sample item).
+func tryExtractMetaFromArrayChild(el *element) *metaBlock {
+	if el == nil {
+		return nil
+	}
+	// Only objects can carry constraint properties.
+	if el.Element != "object" {
+		return nil
+	}
+	members := el.contentArray()
+	if len(members) == 0 {
+		return nil
+	}
+	mb := &metaBlock{}
+	for _, m := range members {
+		if m.Element != "member" {
+			return nil // non-member child → real data
+		}
+		mem := decodeMember(&m)
+		if mem == nil {
+			return nil
+		}
+		key := strings.TrimSpace(mem.Content.Key.Content)
+		val := strings.TrimSpace(mem.Content.Value.contentString())
+		if key == "" {
+			return nil
+		}
+		// applyMetaKey silently ignores truly unknown keys by adding to
+		// mb.Extensions.  We track whether the key was recognised by
+		// checking Extensions before and after.
+		extBefore := len(mb.Extensions)
+		applyMetaKey(mb, key, val)
+		extAfter := len(mb.Extensions)
+		if extAfter > extBefore {
+			// Key was not a recognised constraint keyword — this is a
+			// real sample item, not a Meta block.
+			return nil
+		}
+	}
+	if mb.isEmpty() {
+		return nil
+	}
+	return mb
+}
+

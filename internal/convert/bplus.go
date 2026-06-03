@@ -242,11 +242,14 @@ func extractMetaFromCopyChildren(el *element) (*metaBlock, map[int]bool) {
 			metaText string
 			ok       bool
 		)
-		if looksLikeMetaBlock(text) {
-			metaText, ok = text, true
-		} else {
-			metaText, ok = findMetaInCopy(text)
-		}
+		// Always use findMetaInCopy so that fused copies (a `+ Meta`
+		// block followed by prose/tables in the same copy element) only
+		// extract the actual meta portion. The former fast-path
+		// (looksLikeMetaBlock → full text) was incorrect: when prose
+		// with markdown tables follows the meta block in the same copy,
+		// table rows containing colons were being fed to parseMetaText
+		// and turned into spurious x-* extension keys.
+		metaText, ok = findMetaInCopy(text)
 		if !ok {
 			continue
 		}

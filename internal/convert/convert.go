@@ -902,7 +902,6 @@ func newTagRegistry() *tagRegistry {
 	}
 }
 
-
 func (tr *tagRegistry) recordWithSummary(name, parent, summary, desc, kind string, ext map[string]any) {
 	if !tr.seen[name] {
 		tr.seen[name] = true
@@ -1488,21 +1487,72 @@ func parseExample(body string) any {
 	return body
 }
 
-// stripBlueprintReservedKeys removes Blueprint+ pseudo-member keys that must
-// never appear in OAS example bodies. Currently the only reserved key is
+// metaConstraintKeysLower is the set of Blueprint+ `+ Meta` constraint keys
+// (lowercased). Objects whose every key is in this set are phantom "Meta
+// constraint objects" that Drafter emits as extra array children when a blank
+// line separates a member definition from its `+ Meta` block; they should
+// never appear as example array items.
+var metaConstraintKeysLower = map[string]bool{
+	"maxitems": true, "minitems": true,
+	"maxlength": true, "minlength": true,
+	"minimum": true, "maximum": true,
+	"pattern": true, "uniqueitems": true,
+	"exclusiveminimum": true, "exclusivemaximum": true,
+	"multipleof": true,
+}
+
+// isPhantomMetaConstraintObject reports whether m is a Blueprint+ phantom Meta
+// constraint object — i.e. every key (case-insensitive) is a known constraint
+// keyword.  An empty map is NOT considered a phantom object.
+func isPhantomMetaConstraintObject(m map[string]any) bool {
+	if len(m) == 0 {
+		return false
+	}
+	for k := range m {
+		if !metaConstraintKeysLower[strings.ToLower(strings.TrimSpace(k))] {
+			return false
+		}
+	}
+	return true
+}
+
+// stripBlueprintReservedKeys removes Blueprint+ pseudo-member keys and phantom
+// Meta constraint objects that must never appear in OAS example bodies.
+//
 // "Schema Patch" — Drafter synthesises a messageBody asset from every parsed
 // MSON member, including the `+ Schema Patch` pseudo-member, so without this
 // scrub the patch JSON block leaks into the rendered curl example as
 // `"Schema Patch": ""`.
+//
+// Phantom Meta constraint objects — when a blank line precedes a `+ Meta`
+// block inside a MSON named-type member, Drafter treats the Meta block as a
+// sub-item of the member (an extra array child).  Those objects consist
+// entirely of constraint keys (MaxItems, MaxLength, …) and must be removed
+// from array positions in examples.
+//
+// The function recurses into maps and arrays so nested examples are cleaned
+// as well.
 func stripBlueprintReservedKeys(v any) any {
-	m, ok := v.(map[string]any)
-	if !ok {
-		return v
-	}
-	for k := range m {
-		if strings.EqualFold(strings.TrimSpace(k), "Schema Patch") {
-			delete(m, k)
+	switch val := v.(type) {
+	case map[string]any:
+		for k := range val {
+			if strings.EqualFold(strings.TrimSpace(k), "Schema Patch") {
+				delete(val, k)
+			}
 		}
+		for k, child := range val {
+			val[k] = stripBlueprintReservedKeys(child)
+		}
+		return val
+	case []any:
+		result := make([]any, 0, len(val))
+		for _, item := range val {
+			if m, ok := item.(map[string]any); ok && isPhantomMetaConstraintObject(m) {
+				continue // skip phantom Meta constraint objects
+			}
+			result = append(result, stripBlueprintReservedKeys(item))
+		}
+		return result
 	}
 	return v
 }
