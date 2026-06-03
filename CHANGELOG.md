@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/alecoletti/apib-to-oas/compare/v1.5.0...v1.5.1) (2026-06-03)
+
+
+### Bug Fixes
+
+* update +meta parsing ([d04eaf3](https://github.com/alecoletti/apib-to-oas/commit/d04eaf3ba055b78bcec12bb7b320c0d9c7970ab4))
+
 ## [1.5.0](https://github.com/alecoletti/apib-to-oas/compare/v1.4.1...v1.5.0) (2026-06-02)
 
 
