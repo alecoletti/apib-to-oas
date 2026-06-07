@@ -972,3 +972,107 @@ func TestSchemaPatch_DrafterParsedAsMember(t *testing.T) {
 		t.Errorf("s.Then.Required missing 'partnerAvailability': %v", s.Then.Required)
 	}
 }
+
+// TestRecoverMembersNested guards the bug where Drafter dumps complex MSON
+// (prose + members) into meta.description and recoverMembersFromDescription
+// used to flatten indented sub-members to sibling properties instead of
+// nesting them correctly inside their parent object property.
+//
+// Example pattern:
+//
+//	## StatusError (object)
+//	Represents a status error response.
+//	+ error (object, required)
+//	    + errCode: 400 (number, required) - The error code
+//	    + errMessage: error message (string) - The error message
+//
+// Before the fix: StatusError.properties = {error:{type:object}, errCode:…, errMessage:…}
+// After the fix:  StatusError.properties = {error:{type:object, properties:{errCode:…, errMessage:…}}}
+func TestRecoverMembersNested_InlineObjectSubMembers(t *testing.T) {
+	resolver := newSchemaResolver(nil)
+
+	// Simulate what Drafter emits when it fails to parse the MSON inline
+	// object: the entire member list (including nested lines) ends up in
+	// meta.description, and the object element has zero content children.
+	desc := "Represents a status error response.\n" +
+		"+ error (object, required)\n" +
+		"    + errCode: 400 (number, required) - The error code\n" +
+		"    + errMessage: error message (string) - The error message\n"
+
+	s := &oas.Schema{Type: "object", Description: desc}
+	resolver.recoverMembersFromDescription(s, map[string]bool{})
+
+	// Prose is separated out from description.
+	if s.Description != "Represents a status error response." {
+		t.Errorf("unexpected description: %q", s.Description)
+	}
+
+	// Top-level: only `error` — NOT errCode/errMessage as siblings.
+	if len(s.Properties) != 1 {
+		t.Errorf("expected 1 top-level property, got %d: %v", len(s.Properties), s.Properties)
+	}
+	errProp := s.Properties["error"]
+	if errProp == nil {
+		t.Fatal("top-level 'error' property missing")
+	}
+	if errProp.Type != "object" {
+		t.Errorf("error.type: want object, got %q", errProp.Type)
+	}
+
+	// `error` must carry its sub-members as nested properties.
+	if len(errProp.Properties) != 2 {
+		t.Fatalf("error.properties: want 2, got %d: %v", len(errProp.Properties), errProp.Properties)
+	}
+	errCode := errProp.Properties["errCode"]
+	if errCode == nil {
+		t.Fatal("error.properties.errCode missing")
+	}
+	if errCode.Description != "The error code" {
+		t.Errorf("errCode.description: want %q, got %q", "The error code", errCode.Description)
+	}
+	errMsg := errProp.Properties["errMessage"]
+	if errMsg == nil {
+		t.Fatal("error.properties.errMessage missing")
+	}
+	if errMsg.Description != "The error message" {
+		t.Errorf("errMessage.description: want %q, got %q", "The error message", errMsg.Description)
+	}
+
+	// required on the outer object
+	if len(s.Required) != 1 || s.Required[0] != "error" {
+		t.Errorf("outer required: want [error], got %v", s.Required)
+	}
+	// required on the nested object (errCode was marked required)
+	if len(errProp.Required) != 1 || errProp.Required[0] != "errCode" {
+		t.Errorf("error.required: want [errCode], got %v", errProp.Required)
+	}
+}
+
+// TestRecoverMembersNested_ThreeLevels verifies that arbitrarily deep nesting
+// is handled correctly (not just two levels).
+func TestRecoverMembersNested_ThreeLevels(t *testing.T) {
+	resolver := newSchemaResolver(nil)
+
+	desc := "+ outer (object, required)\n" +
+		"    + middle (object)\n" +
+		"        + inner: val (string, required) - deep field\n"
+
+	s := &oas.Schema{Type: "object", Description: desc}
+	resolver.recoverMembersFromDescription(s, map[string]bool{})
+
+	outerProp := s.Properties["outer"]
+	if outerProp == nil {
+		t.Fatal("outer property missing")
+	}
+	middleProp := outerProp.Properties["middle"]
+	if middleProp == nil {
+		t.Fatal("outer.middle property missing")
+	}
+	innerProp := middleProp.Properties["inner"]
+	if innerProp == nil {
+		t.Fatal("outer.middle.inner property missing")
+	}
+	if innerProp.Description != "deep field" {
+		t.Errorf("inner.description: want %q, got %q", "deep field", innerProp.Description)
+	}
+}

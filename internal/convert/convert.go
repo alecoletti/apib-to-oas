@@ -1351,6 +1351,17 @@ func applyBody(resp *oas.Response, el *element, resolver *schemaResolver, resour
 		schema = resourceDefault
 	}
 	if body == "" && schema == nil {
+		// If the author declared an explicit content-type (e.g. text/event-stream
+		// on an SSE endpoint) but provided no body or schema, still register the
+		// media-type key so the content type appears in the OAS response.
+		if contentType != "" {
+			if resp.Content == nil {
+				resp.Content = map[string]*oas.MediaType{}
+			}
+			if resp.Content[contentType] == nil {
+				resp.Content[contentType] = &oas.MediaType{}
+			}
+		}
 		return
 	}
 	if contentType == "" {

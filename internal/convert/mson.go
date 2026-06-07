@@ -650,7 +650,7 @@ func collectIndentedBlock(lines []string, startIdx, parentIndent int) (body []st
 }
 
 // - Prose (kept as the cleaned description)
-// - Flat member lines → properties + required
+// - Member lines (with correct nesting for inline anonymous objects) → properties + required
 // - `+ One Of` blocks → oneOf schemas
 //
 // This is a best-effort recovery for Drafter's failure to parse complex
@@ -662,115 +662,215 @@ func (r *schemaResolver) recoverMembersFromDescription(s *oas.Schema, visited ma
 	var prose []string
 	props := map[string]*oas.Schema{}
 	var required []string
-	var oneOfBlocks [][]*recoveredMember // each sub-slice is one option's members
+	var oneOfBlocks [][]*recoveredMember
 	inOneOf := false
 	var currentOption []*recoveredMember
 	inProse := true
+	topIndent := -1 // indent of first member/One-Of line
 
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 		trimmed := strings.TrimSpace(line)
-
-		// Blank line
 		if trimmed == "" {
 			if inProse {
 				prose = append(prose, line)
 			}
 			continue
 		}
-
-		// Detect `+ One Of` start
-		if strings.HasPrefix(trimmed, "+ One Of") || strings.HasPrefix(trimmed, "- One Of") {
+		if isOneOfHeader(trimmed) {
 			inProse = false
 			inOneOf = true
 			currentOption = nil
+			if topIndent < 0 {
+				topIndent = indentOf(line)
+			}
 			continue
 		}
-
-		// Inside a One Of block: detect `+ Properties` (indented)
 		if inOneOf {
-			if strings.HasPrefix(trimmed, "+ Properties") || strings.HasPrefix(trimmed, "- Properties") {
-				// Start a new option; save previous if any
-				if currentOption != nil {
-					oneOfBlocks = append(oneOfBlocks, currentOption)
-				}
-				currentOption = []*recoveredMember{}
-				continue
-			}
-			// Indented member inside a Properties block
-			if currentOption != nil && (strings.HasPrefix(trimmed, "+ ") || strings.HasPrefix(trimmed, "- ")) {
-				if m := parseMemberLine(trimmed); m != nil {
-					currentOption = append(currentOption, m)
-					continue
-				}
-			}
+			currentOption, oneOfBlocks = advanceOneOf(trimmed, currentOption, oneOfBlocks)
+			continue
 		}
-
-		// Flat member line (top-level, not inside One Of)
-		if !inOneOf && (strings.HasPrefix(trimmed, "+ ") || strings.HasPrefix(trimmed, "- ")) {
-			// Intercept `+ Schema Patch` before parseMemberLine so it is
-			// never added to props. Collect its indented JSON body and
-			// apply it as a patch.
-			suffix := strings.TrimSpace(trimmed[2:])
-			if strings.EqualFold(suffix, "Schema Patch") {
-				inProse = false
-				body, newIdx := collectIndentedBlock(lines, i, indentOf(line))
-				i = newIdx
-				if len(body) > 0 {
-					applySchemaPatch(s, strings.Join(body, "\n"))
-				}
-				continue
+		if isMemberPrefix(trimmed) {
+			lineIndent := indentOf(line)
+			if topIndent < 0 {
+				topIndent = lineIndent
 			}
-			if m := parseMemberLine(trimmed); m != nil {
-				inProse = false
-				ps := r.schemaForRecoveredMember(m, visited)
-				props[m.name] = ps
-				if m.required {
-					required = append(required, m.name)
-				}
-				continue
+			if lineIndent > topIndent {
+				continue // consumed by look-ahead of its parent
 			}
+			newI, ok := r.processMemberLine(s, lines, i, lineIndent, trimmed, props, &required, &inProse, visited)
+			if ok {
+				i = newI
+			}
+			continue
 		}
-
-		// Prose line (before first member)
 		if inProse {
 			prose = append(prose, line)
 		}
 	}
 
-	// Flush last One Of option
 	if currentOption != nil {
 		oneOfBlocks = append(oneOfBlocks, currentOption)
 	}
-
-	// Apply recovered properties
 	if len(props) > 0 {
 		s.Properties = props
 	}
 	if len(required) > 0 {
 		s.Required = required
 	}
+	for _, option := range oneOfBlocks {
+		s.OneOf = append(s.OneOf, r.oneOfOptionSchema(option, visited))
+	}
+	s.Description = strings.TrimSpace(strings.Join(prose, "\n"))
+}
 
-	// Apply One Of → oneOf
-	if len(oneOfBlocks) > 0 {
-		for _, option := range oneOfBlocks {
-			optSchema := &oas.Schema{
-				Type:       "object",
-				Properties: map[string]*oas.Schema{},
-			}
-			for _, m := range option {
-				optSchema.Properties[m.name] = r.schemaForRecoveredMember(m, visited)
-				if m.required {
-					optSchema.Required = append(optSchema.Required, m.name)
-				}
-			}
-			s.OneOf = append(s.OneOf, optSchema)
+func isOneOfHeader(trimmed string) bool {
+	return strings.HasPrefix(trimmed, "+ One Of") || strings.HasPrefix(trimmed, "- One Of")
+}
+
+func isMemberPrefix(trimmed string) bool {
+	return strings.HasPrefix(trimmed, "+ ") || strings.HasPrefix(trimmed, "- ")
+}
+
+// advanceOneOf handles a single line inside a `+ One Of` block.
+func advanceOneOf(trimmed string, current []*recoveredMember, blocks [][]*recoveredMember) ([]*recoveredMember, [][]*recoveredMember) {
+	if strings.HasPrefix(trimmed, "+ Properties") || strings.HasPrefix(trimmed, "- Properties") {
+		if current != nil {
+			blocks = append(blocks, current)
+		}
+		return []*recoveredMember{}, blocks
+	}
+	if current != nil && isMemberPrefix(trimmed) {
+		if m := parseMemberLine(trimmed); m != nil {
+			current = append(current, m)
 		}
 	}
+	return current, blocks
+}
 
-	// Clean up description: keep only the prose portion
-	cleaned := strings.TrimSpace(strings.Join(prose, "\n"))
-	s.Description = cleaned
+// processMemberLine handles one top-level `+/-` member line and its sub-block.
+// Returns the updated loop index and true when the line was consumed.
+func (r *schemaResolver) processMemberLine(
+	s *oas.Schema,
+	lines []string,
+	i, lineIndent int,
+	trimmed string,
+	props map[string]*oas.Schema,
+	required *[]string,
+	inProse *bool,
+	visited map[string]bool,
+) (newI int, consumed bool) {
+	suffix := strings.TrimSpace(trimmed[2:])
+	if strings.EqualFold(suffix, "Schema Patch") {
+		*inProse = false
+		body, newIdx := collectIndentedBlock(lines, i, lineIndent)
+		if len(body) > 0 {
+			applySchemaPatch(s, strings.Join(body, "\n"))
+		}
+		return newIdx, true
+	}
+	m := parseMemberLine(trimmed)
+	if m == nil {
+		return i, false
+	}
+	*inProse = false
+	subLines, newIdx := collectSubLines(lines, i, lineIndent)
+	props[m.name] = r.schemaForMemberWithSubs(m, subLines, visited)
+	if m.required {
+		*required = append(*required, m.name)
+	}
+	return newIdx, true
+}
+
+// collectSubLines gathers lines following lines[i] that are indented deeper
+// than parentIndent. Blank lines are absorbed only when deeper content follows.
+func collectSubLines(lines []string, i, parentIndent int) (subLines []string, newI int) {
+	for i+1 < len(lines) {
+		next := lines[i+1]
+		if strings.TrimSpace(next) == "" {
+			j := i + 2
+			for j < len(lines) && strings.TrimSpace(lines[j]) == "" {
+				j++
+			}
+			if j < len(lines) && indentOf(lines[j]) > parentIndent {
+				subLines = append(subLines, next)
+				i++
+				continue
+			}
+			break
+		}
+		if indentOf(next) > parentIndent {
+			subLines = append(subLines, next)
+			i++
+		} else {
+			break
+		}
+	}
+	return subLines, i
+}
+
+// schemaForMemberWithSubs builds a schema for a recovered member, recursing
+// into sub-lines when the member is an inline object type.
+func (r *schemaResolver) schemaForMemberWithSubs(m *recoveredMember, subLines []string, visited map[string]bool) *oas.Schema {
+	if len(subLines) > 0 && (m.typeName == "object" || m.typeName == "") {
+		subProps, subReq := r.recoverMembersNested(subLines, visited)
+		if len(subProps) > 0 {
+			ps := &oas.Schema{Type: "object", Properties: subProps}
+			if len(subReq) > 0 {
+				ps.Required = subReq
+			}
+			if m.desc != "" {
+				ps.Description = m.desc
+			}
+			return ps
+		}
+	}
+	return r.schemaForRecoveredMember(m, visited)
+}
+
+// oneOfOptionSchema converts a slice of recoveredMembers into an OAS object schema.
+func (r *schemaResolver) oneOfOptionSchema(members []*recoveredMember, visited map[string]bool) *oas.Schema {
+	opt := &oas.Schema{Type: "object", Properties: map[string]*oas.Schema{}}
+	for _, m := range members {
+		opt.Properties[m.name] = r.schemaForRecoveredMember(m, visited)
+		if m.required {
+			opt.Required = append(opt.Required, m.name)
+		}
+	}
+	return opt
+}
+
+// recoverMembersNested parses member lines from a sub-block inside an inline
+// object property, recursing for further-nested objects at any depth.
+func (r *schemaResolver) recoverMembersNested(lines []string, visited map[string]bool) (props map[string]*oas.Schema, required []string) {
+	props = map[string]*oas.Schema{}
+	baseIndent := -1
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || !isMemberPrefix(trimmed) {
+			continue
+		}
+		lineIndent := indentOf(line)
+		if baseIndent < 0 {
+			baseIndent = lineIndent
+		}
+		if lineIndent != baseIndent {
+			continue // consumed by look-ahead of its parent
+		}
+		m := parseMemberLine(trimmed)
+		if m == nil {
+			continue
+		}
+		subLines, newIdx := collectSubLines(lines, i, lineIndent)
+		i = newIdx
+		ps := r.schemaForMemberWithSubs(m, subLines, visited)
+		props[m.name] = ps
+		if m.required {
+			required = append(required, m.name)
+		}
+	}
+	return props, required
 }
 
 // recoveredMember holds a member parsed from description text.
@@ -991,4 +1091,3 @@ func tryExtractMetaFromArrayChild(el *element) *metaBlock {
 	}
 	return mb
 }
-
