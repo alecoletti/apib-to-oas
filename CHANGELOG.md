@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/alecoletti/apib-to-oas/compare/v1.5.2...v1.6.0) (2026-08-18)
+
+
+### Features
+
+* add support for deprecated fields ([cd7cbb5](https://github.com/alecoletti/apib-to-oas/commit/cd7cbb53f6d0f6163bf8ffa08b4a563aa947acbc))
+
 ## [1.5.2](https://github.com/alecoletti/apib-to-oas/compare/v1.5.1...v1.5.2) (2026-06-07)
 
 
