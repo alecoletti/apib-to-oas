@@ -11,7 +11,7 @@ vars:
   PKG: ./cmd/apib-to-oas
   REGISTRY: '{{.REGISTRY | default "ghcr.io/alecoletti"}}'
   IMAGE: '{{.REGISTRY | default "ghcr.io/alecoletti"}}/{{.BIN | default "apib-to-oas"}}'
-  DOCKER_TAG: '{{.DOCKER_TAG | default "dev"}}'
+  DOCKER_TAG: '{{.DOCKER_TAG | default "local"}}'
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev
   COMMIT:

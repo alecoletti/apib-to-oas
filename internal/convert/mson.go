@@ -222,10 +222,24 @@ func (r *schemaResolver) decodeMemberSchema(c *element, visited map[string]bool)
 		valSchema = &oas.Schema{Type: "string"}
 	}
 	// Member-level description (from `- name (type) - description`)
-	// trumps any inherited from the value type. A `+ Meta` block embedded
-	// in the description is extracted as schema constraints (§14) and
-	// stripped from the visible prose.
+	// trumps any inherited from the value type. Description-prefix flags
+	// ([deprecated], [readOnly], [writeOnly]) are extracted first; then a
+	// `+ Meta` block is rescued as schema constraints (§14) and stripped
+	// from the visible prose. This prefix approach is the reliable path
+	// when `### Properties` is used — Drafter drops `+ Meta` sub-blocks
+	// and unknown type attributes (e.g. `deprecated` on named-type refs)
+	// in that mode.
 	if d := m.Meta.Description.Content; d != "" {
+		d, flags := parseSchemaDescPrefix(d)
+		if flags.Deprecated {
+			valSchema.Deprecated = true
+		}
+		if flags.ReadOnly {
+			valSchema.ReadOnly = true
+		}
+		if flags.WriteOnly {
+			valSchema.WriteOnly = true
+		}
 		valSchema.Description = extractConstraintsFromDescription(valSchema, d)
 	}
 	// Inline default / example value: when the value element carries a
@@ -516,6 +530,8 @@ func applyTypeAttributes(s *oas.Schema, attrs classesList) {
 				// leave individual property values unconstrained.
 				s.AdditionalProperties = false
 			}
+		case "deprecated":
+			s.Deprecated = true
 		case "default":
 			if s.Default == nil && s.Example != nil {
 				s.Default = s.Example
@@ -1090,4 +1106,58 @@ func tryExtractMetaFromArrayChild(el *element) *metaBlock {
 		return nil
 	}
 	return mb
+}
+
+// schemaDescFlags holds schema boolean flags extracted from description
+// prefixes. See parseSchemaDescPrefix.
+type schemaDescFlags struct {
+	Deprecated bool
+	ReadOnly   bool
+	WriteOnly  bool
+}
+
+// parseSchemaDescPrefix scans the leading bracket tokens of a MSON member
+// description and extracts recognised schema flags. Recognised tokens
+// (case-insensitive):
+//
+//	[deprecated]            → Deprecated: true
+//	[readOnly] / [read-only] → ReadOnly: true
+//	[writeOnly] / [write-only] → WriteOnly: true
+//
+// Multiple prefixes may appear in any order separated by whitespace:
+//
+//	"[readOnly] [deprecated] Unique identifier."
+//
+// The returned string has all recognised prefixes stripped and leading
+// whitespace trimmed. An unrecognised bracket token stops scanning —
+// it is left in the returned string so it is visible in the description.
+// This is the reliable description-prefix alternative for contexts where
+// Drafter drops `+ Meta` blocks or unknown type attributes (e.g. inside
+// `### Properties` sections).
+func parseSchemaDescPrefix(s string) (string, schemaDescFlags) {
+	var flags schemaDescFlags
+	for {
+		t := strings.TrimLeft(s, " \t")
+		if !strings.HasPrefix(t, "[") {
+			break
+		}
+		end := strings.Index(t, "]")
+		if end < 0 {
+			break
+		}
+		word := strings.ToLower(t[1:end])
+		switch word {
+		case "deprecated":
+			flags.Deprecated = true
+		case "readonly", "read-only":
+			flags.ReadOnly = true
+		case "writeonly", "write-only":
+			flags.WriteOnly = true
+		default:
+			// Unrecognised bracket token — stop scanning, leave in string.
+			return strings.TrimLeft(s, " \t"), flags
+		}
+		s = strings.TrimLeft(t[end+1:], " \t")
+	}
+	return s, flags
 }

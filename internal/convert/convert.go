@@ -447,16 +447,22 @@ func normalizeNullableForJSONSchema(doc *oas.Document) {
 		switch {
 		case s.Ref != "":
 			// $ref + nullable → oneOf: [$ref, {type: "null"}]
-			// Preserve description; clear all other sibling fields so
-			// no invalid keywords sit next to the oneOf.
+			// Preserve non-assertion annotation siblings. These are valid
+			// alongside oneOf and carry author intent (e.g. [deprecated]).
 			ref := s.Ref
 			desc := s.Description
+			deprecated := s.Deprecated
+			readOnly := s.ReadOnly
+			writeOnly := s.WriteOnly
 			*s = oas.Schema{
 				OneOf: []*oas.Schema{
 					{Ref: ref},
 					{Type: "null"},
 				},
 				Description: desc,
+				Deprecated:  deprecated,
+				ReadOnly:    readOnly,
+				WriteOnly:   writeOnly,
 			}
 		case s.Type != "":
 			s.TypeList = []string{s.Type, "null"}

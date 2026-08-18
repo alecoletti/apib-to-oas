@@ -15,6 +15,16 @@ func nullableMemberFixture() []byte {
 	  "content":[
 	    {"element":"category","meta":{"title":{"element":"string","content":"API"}},
 	     "content":[
+	       {"element":"category","meta":{"classes":{"element":"array","content":[{"element":"string","content":"dataStructures"}]}}
+	       ,"content":[
+	         {"element":"dataStructure","content":{
+	           "element":"Article","meta":{"id":{"element":"string","content":"Article"}},
+	           "content":[
+	             {"element":"member","content":{
+	               "key":{"element":"string","content":"id"},
+	               "value":{"element":"string","content":""}}}
+	           ]}}
+	       ]},
 	       {"element":"resource","attributes":{"href":{"element":"string","content":"/x"}},
 	        "content":[{"element":"transition","meta":{"title":{"element":"string","content":"Get"}},
 	          "content":[{"element":"httpTransaction","content":[
@@ -138,7 +148,9 @@ func nullableRefFixture() []byte {
 	              "content":[
 	                {"element":"dataStructure","content":{
 	                  "element":"object","content":[
-	                    {"element":"member","content":{
+	                    {"element":"member",
+	                      "meta":{"description":{"element":"string","content":"[deprecated] [readOnly] [writeOnly] Legacy ref."}},
+	                      "content":{
 	                      "key":{"element":"string","content":"article"},
 	                      "value":{"element":"Article","content":""}},
 	                      "attributes":{"typeAttributes":{"element":"array","content":[
@@ -438,5 +450,46 @@ func TestTagKind_OAS32_Emitted(t *testing.T) {
 	}
 	if doc.Tags[0].Kind != "nav" {
 		t.Errorf("OAS 3.2 should emit tags[].kind=nav; got %q", doc.Tags[0].Kind)
+	}
+}
+
+
+func TestNullableRef_OAS31_PreservesAnnotations(t *testing.T) {
+	doc, err := RefractToOASWithOptions(nullableRefFixture(), Options{OASVersion: "3.1"})
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	s := doc.Paths["/x"].Get.Responses["200"].Content["application/json"].Schema.Properties["article"]
+	if s == nil {
+		t.Fatal("article schema missing")
+	}
+	if len(s.OneOf) != 2 || s.OneOf[0].Ref != "#/components/schemas/Article" || s.OneOf[1].Type != "null" {
+		t.Fatalf("OAS 3.1: expected nullable ref oneOf shape; got %+v", s.OneOf)
+	}
+	if !s.Deprecated || !s.ReadOnly || !s.WriteOnly {
+		t.Errorf("OAS 3.1: expected deprecated/readOnly/writeOnly preserved; got deprecated=%v readOnly=%v writeOnly=%v", s.Deprecated, s.ReadOnly, s.WriteOnly)
+	}
+	if s.Description != "Legacy ref." {
+		t.Errorf("OAS 3.1: description prefix should be stripped, got %q", s.Description)
+	}
+}
+
+func TestNullableRef_OAS32_PreservesAnnotations(t *testing.T) {
+	doc, err := RefractToOASWithOptions(nullableRefFixture(), Options{OASVersion: "3.2"})
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	s := doc.Paths["/x"].Get.Responses["200"].Content["application/json"].Schema.Properties["article"]
+	if s == nil {
+		t.Fatal("article schema missing")
+	}
+	if len(s.OneOf) != 2 || s.OneOf[0].Ref != "#/components/schemas/Article" || s.OneOf[1].Type != "null" {
+		t.Fatalf("OAS 3.2: expected nullable ref oneOf shape; got %+v", s.OneOf)
+	}
+	if !s.Deprecated || !s.ReadOnly || !s.WriteOnly {
+		t.Errorf("OAS 3.2: expected deprecated/readOnly/writeOnly preserved; got deprecated=%v readOnly=%v writeOnly=%v", s.Deprecated, s.ReadOnly, s.WriteOnly)
+	}
+	if s.Description != "Legacy ref." {
+		t.Errorf("OAS 3.2: description prefix should be stripped, got %q", s.Description)
 	}
 }

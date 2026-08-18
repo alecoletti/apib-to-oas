@@ -290,6 +290,77 @@ schema.
 
 → on OAS 3.0: `nullable: true`. On 3.1 / 3.2: `type: ["string", "null"]`.
 
+#### `deprecated`
+
+```
++ oldUsername (string, optional, deprecated) - Deprecated. Use `username` instead.
++ legacyScore (number, optional, deprecated) - Deprecated. Use `rating` instead.
+```
+
+→ `schema.deprecated: true` on the property schema. Applicable to any MSON member
+(scalar, object, or array). The description after `-` is passed through as-is as
+`schema.description` and should explain the reason and migration path.
+
+This is the inline shorthand equivalent of placing `+ Meta` / `+ Deprecated: true`
+in the member description — both produce the same output. The `(deprecated)` type
+attribute is the preferred form when no other `+ Meta` keys are needed.
+
+#### Description prefixes (`[deprecated]`, `[readOnly]`, `[writeOnly]`)
+
+When a schema is defined using `### Properties`, Drafter parses members
+structurally but drops `+ Meta` sub-blocks and unknown type attributes
+(e.g. `deprecated` on named-type references like `(Cors, optional, nullable,
+deprecated)`). Blueprint+ rescues these signals via a **description prefix**
+convention — a bracket token at the very start of the member description:
+
+```apib
++ id: `7066361a` (string, required) - [readOnly] Unique identifier.
++ cors (Cors, optional, nullable) - [deprecated] Use the `cors` plugin instead.
++ updatedAt (string, required) - [readOnly] [deprecated] Legacy timestamp.
++ password (string, required) - [writeOnly] User password.
+```
+
+| Prefix                           | JSON Schema field  | Notes                     |
+|----------------------------------|--------------------|---------------------------|
+| `[deprecated]`                   | `deprecated: true` | Works on any member type. |
+| `[readOnly]` / `[read-only]`     | `readOnly: true`   | Works on any member type. |
+| `[writeOnly]` / `[write-only]`   | `writeOnly: true`  | Works on any member type. |
+
+- Prefixes are **case-insensitive** (`[DEPRECATED]`, `[ReadOnly]` are equivalent).
+- Multiple prefixes may appear in any order: `[readOnly] [deprecated]`.
+- Prefixes are **stripped from the rendered `description`** — only the prose
+  after the last prefix appears in the OAS output.
+- An unrecognised bracket token (e.g. `[header:X-Foo]`) is left in the
+  description unchanged and stops prefix scanning.
+- This approach works universally — with or without `### Properties` — and
+  is the **only reliable way** to set `readOnly` / `writeOnly` / `deprecated`
+  on named-type reference members inside `### Properties` blocks, where Drafter
+  drops `+ Meta` sub-blocks entirely.
+
+```yaml
+# Generated schema for the examples above
+properties:
+  id:
+    type: string
+    readOnly: true
+    description: Unique identifier.
+  cors:
+    allOf:
+      - $ref: '#/components/schemas/Cors'
+    nullable: true
+    deprecated: true
+    description: Use the `cors` plugin instead.
+  updatedAt:
+    type: string
+    readOnly: true
+    deprecated: true
+    description: Legacy timestamp.
+  password:
+    type: string
+    writeOnly: true
+    description: User password.
+```
+
 #### Type attributes: `fixed` and `fixed-type`
 
 MSON supports two type attributes that constrain how much variation a
@@ -605,4 +676,6 @@ requires OAS 3.1 or later; on 3.0 the metadata is ignored.
 
 Nested `# Group` headers are flat tags on OAS 3.0 / 3.1. On OAS
 3.2+ the inner group's tag carries `parent: <outer group title>`.
+
+
 

@@ -14,12 +14,19 @@ import (
 
 func TestVersionSubcommand(t *testing.T) {
 	var out bytes.Buffer
-	app := &App{Version: "test", Stdout: &out, Stderr: &bytes.Buffer{}}
+	app := &App{Version: "test", Commit: "abc1234", BuildTime: "2026-08-18T10:00:00Z", Stdout: &out, Stderr: &bytes.Buffer{}}
 	if err := app.Run(context.Background(), []string{"version"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.TrimSpace(out.String()); got != "test" {
-		t.Fatalf("got %q, want %q", got, "test")
+	got := strings.TrimSpace(out.String())
+	if !strings.Contains(got, "test") {
+		t.Fatalf("expected version in output, got %q", got)
+	}
+	if !strings.Contains(got, "abc1234") {
+		t.Fatalf("expected commit in output, got %q", got)
+	}
+	if !strings.Contains(got, "2026-08-18T10:00:00Z") {
+		t.Fatalf("expected build time in output, got %q", got)
 	}
 }
 

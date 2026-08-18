@@ -28,11 +28,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	app := cli.New(version)
-	// Touch commit and date so the linker keeps them. Visible via
-	// `go version -m bin/apib-to-oas`.
-	_ = commit
-	_ = date
+	app := cli.New(version, commit, date)
 	if err := app.Run(ctx, os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "apib-to-oas: %v\n", err)
 		os.Exit(cli.ExitCode(err))

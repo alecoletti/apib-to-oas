@@ -23,15 +23,24 @@ import (
 // App is the apib-to-oas CLI. Stdout/Stderr/Stdin are injectable so the
 // command tree can be tested without touching real files.
 type App struct {
-	Version string
-	Stdout  io.Writer
-	Stderr  io.Writer
-	Stdin   io.Reader
+	Version   string
+	Commit    string
+	BuildTime string
+	Stdout    io.Writer
+	Stderr    io.Writer
+	Stdin     io.Reader
 }
 
 // New returns an App wired to the process's standard streams.
-func New(version string) *App {
-	return &App{Version: version, Stdout: os.Stdout, Stderr: os.Stderr, Stdin: os.Stdin}
+func New(version, commit, buildTime string) *App {
+	return &App{
+		Version:   version,
+		Commit:    commit,
+		BuildTime: buildTime,
+		Stdout:    os.Stdout,
+		Stderr:    os.Stderr,
+		Stdin:     os.Stdin,
+	}
 }
 
 // Exit codes:
@@ -101,7 +110,15 @@ func (a *App) newVersionCmd() *cobra.Command {
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), a.Version)
+			commit := a.Commit
+			if commit == "" {
+				commit = "none"
+			}
+			buildTime := a.BuildTime
+			if buildTime == "" {
+				buildTime = "unknown"
+			}
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s (commit %s, built %s)\n", a.Version, commit, buildTime)
 			return err
 		},
 	}

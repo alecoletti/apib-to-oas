@@ -7,6 +7,82 @@ import (
 	"github.com/alecoletti/apib-to-oas/internal/oas"
 )
 
+func TestService_DeprecatedNullableRef(t *testing.T) {
+	refract := []byte(`{
+	  "element":"parseResult",
+	  "content":[{"element":"category","content":[
+	    {"element":"category",
+	     "meta":{"classes":{"element":"array","content":[{"element":"string","content":"dataStructures"}]}},
+	     "content":[
+	       {"element":"dataStructure","content":{
+	         "element":"object","meta":{"id":{"element":"string","content":"Service"}},
+	         "content":[
+	           {"element":"member",
+	            "meta":{"description":{"element":"string","content":"[readOnly] Unique identifier of the service."}},
+	            "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"required"}]}},
+	            "content":{"key":{"element":"string","content":"id"},"value":{"element":"string","content":"7066361a-672a-40cd-945d-f375c48a2eef"}}},
+	           {"element":"member",
+	            "meta":{"description":{"element":"string","content":"[deprecated] Use the cors plugin instead."}},
+	            "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"optional"},{"element":"string","content":"nullable"}]}},
+	            "content":{"key":{"element":"string","content":"cors"},"value":{"element":"Cors"}}},
+	           {"element":"member",
+	            "meta":{"description":{"element":"string","content":"[readOnly] [deprecated] Legacy timestamp."}},
+	            "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"required"}]}},
+	            "content":{"key":{"element":"string","content":"updatedAt"},"value":{"element":"string"}}}
+	         ]}}
+	     ]}
+	  ]}]
+	}`)
+
+	doc, err := RefractToOAS(refract)
+	if err != nil {
+		t.Fatalf("RefractToOAS: %v", err)
+	}
+	svc := doc.Components.Schemas["Service"]
+	if svc == nil {
+		t.Fatal("Service schema missing")
+	}
+
+	id := svc.Properties["id"]
+	if id == nil {
+		t.Fatal("id property missing")
+	}
+	if !id.ReadOnly {
+		t.Error("id: expected readOnly=true from [readOnly] prefix")
+	}
+	if id.Description != "Unique identifier of the service." {
+		t.Errorf("id: prefix should be stripped from description, got %q", id.Description)
+	}
+
+	cors := svc.Properties["cors"]
+	if cors == nil {
+		t.Fatal("cors property missing")
+	}
+	if !cors.Deprecated {
+		t.Error("cors: expected deprecated=true from [deprecated] prefix")
+	}
+	if !cors.Nullable {
+		t.Error("cors: expected nullable=true from type attribute")
+	}
+	if cors.Description != "Use the cors plugin instead." {
+		t.Errorf("cors: prefix should be stripped, got %q", cors.Description)
+	}
+
+	updatedAt := svc.Properties["updatedAt"]
+	if updatedAt == nil {
+		t.Fatal("updatedAt property missing")
+	}
+	if !updatedAt.ReadOnly {
+		t.Error("updatedAt: expected readOnly=true")
+	}
+	if !updatedAt.Deprecated {
+		t.Error("updatedAt: expected deprecated=true from [deprecated] prefix")
+	}
+	if updatedAt.Description != "Legacy timestamp." {
+		t.Errorf("updatedAt: both prefixes should be stripped, got %q", updatedAt.Description)
+	}
+}
+
 func TestApplyTypeAttributes_Nullable(t *testing.T) {
 	s := &oas.Schema{Type: "string"}
 	applyTypeAttributes(s, classesList{Content: []stringValue{{Content: "nullable"}}})
@@ -80,6 +156,22 @@ func TestApplyTypeAttributes_FixedWithExample(t *testing.T) {
 	applyTypeAttributes(s, classesList{Content: []stringValue{{Content: "fixed"}}})
 	if len(s.Enum) != 1 || s.Enum[0] != "OK" {
 		t.Errorf("expected enum=[OK], got %v", s.Enum)
+	}
+}
+
+func TestApplyTypeAttributes_Deprecated(t *testing.T) {
+	s := &oas.Schema{Type: "string"}
+	applyTypeAttributes(s, classesList{Content: []stringValue{{Content: "deprecated"}}})
+	if !s.Deprecated {
+		t.Error("expected deprecated=true on schema with (deprecated) type attribute")
+	}
+}
+
+func TestApplyTypeAttributes_DeprecatedOnObject(t *testing.T) {
+	s := &oas.Schema{Type: "object"}
+	applyTypeAttributes(s, classesList{Content: []stringValue{{Content: "deprecated"}}})
+	if !s.Deprecated {
+		t.Error("expected deprecated=true on object schema with (deprecated) type attribute")
 	}
 }
 
@@ -221,10 +313,10 @@ func TestSchemaConstraints_MemberLevel(t *testing.T) {
 	            "content":{"key":{"element":"string","content":"slug"},"value":{"element":"string","content":"my-article"}}},
 	           {"element":"member",
 	            "meta":{"description":{"element":"string","content":"Quality score.\n\n+ Meta\n    + Minimum: 0\n    + Maximum: 100\n    + MultipleOf: 0.5"}},
-	            "content":{"key":{"element":"string","content":"score"},"value":{"element":"number","content":42}}},
+	            "content":{"key":{"element":"string","content":"score"},"value":{"element":"number"}}},
 	           {"element":"member",
 	            "meta":{"description":{"element":"string","content":"Tag list.\n\n+ Meta\n    + MinItems: 1\n    + MaxItems: 20\n    + UniqueItems: true"}},
-	            "content":{"key":{"element":"string","content":"tags"},"value":{"element":"array","content":[{"element":"string"}]}}}
+	            "content":{"key":{"element":"string","content":"tags"},"value":{"element":"array","content":[]}}}
 	         ]}}
 	     ]}
 	  ]}]
@@ -1074,5 +1166,123 @@ func TestRecoverMembersNested_ThreeLevels(t *testing.T) {
 	}
 	if innerProp.Description != "deep field" {
 		t.Errorf("inner.description: want %q, got %q", "deep field", innerProp.Description)
+	}
+}
+
+func TestParseSchemaDescPrefix(t *testing.T) {
+	cases := []struct {
+		input      string
+		wantDesc   string
+		deprecated bool
+		readOnly   bool
+		writeOnly  bool
+	}{
+		{"[deprecated] Use newField instead.", "Use newField instead.", true, false, false},
+		{"[readOnly] Server-assigned.", "Server-assigned.", false, true, false},
+		{"[read-only] Server-assigned.", "Server-assigned.", false, true, false},
+		{"[writeOnly] Password field.", "Password field.", false, false, true},
+		{"[write-only] Password field.", "Password field.", false, false, true},
+		{"[readOnly] [deprecated] Old id.", "Old id.", true, true, false},
+		{"[deprecated] [readOnly] Old id.", "Old id.", true, true, false},
+		{"[DEPRECATED] Case insensitive.", "Case insensitive.", true, false, false},
+		{"No prefix here.", "No prefix here.", false, false, false},
+		{"[unknown] Stays in description.", "[unknown] Stays in description.", false, false, false},
+		{"  [readOnly]   Leading spaces.", "Leading spaces.", false, true, false},
+		{"", "", false, false, false},
+	}
+	for _, tc := range cases {
+		got, flags := parseSchemaDescPrefix(tc.input)
+		if got != tc.wantDesc {
+			t.Errorf("parseSchemaDescPrefix(%q) desc = %q, want %q", tc.input, got, tc.wantDesc)
+		}
+		if flags.Deprecated != tc.deprecated {
+			t.Errorf("parseSchemaDescPrefix(%q) deprecated = %v, want %v", tc.input, flags.Deprecated, tc.deprecated)
+		}
+		if flags.ReadOnly != tc.readOnly {
+			t.Errorf("parseSchemaDescPrefix(%q) readOnly = %v, want %v", tc.input, flags.ReadOnly, tc.readOnly)
+		}
+		if flags.WriteOnly != tc.writeOnly {
+			t.Errorf("parseSchemaDescPrefix(%q) writeOnly = %v, want %v", tc.input, flags.WriteOnly, tc.writeOnly)
+		}
+	}
+}
+
+func TestDescPrefix_IntegrationWithDecodeMember(t *testing.T) {
+	// Simulates the Service schema with ### Properties (Drafter structured mode):
+	// - [readOnly] on primitive property
+	// - [deprecated] on named-type ref
+	// - [readOnly][deprecated] combined
+	refract := []byte(`{
+	  "element":"parseResult",
+	  "content":[{"element":"category","content":[
+	    {"element":"category",
+	     "meta":{"classes":{"element":"array","content":[{"element":"string","content":"dataStructures"}]}},
+	     "content":[
+	       {"element":"dataStructure","content":{
+	         "element":"object","meta":{"id":{"element":"string","content":"Service"}},
+	         "content":[
+	           {"element":"member",
+	            "meta":{"description":{"element":"string","content":"[readOnly] Unique identifier of the service."}},
+	            "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"required"}]}},
+	            "content":{"key":{"element":"string","content":"id"},"value":{"element":"string","content":"7066361a-672a-40cd-945d-f375c48a2eef"}}},
+	           {"element":"member",
+	            "meta":{"description":{"element":"string","content":"[deprecated] Use the cors plugin instead."}},
+	            "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"optional"},{"element":"string","content":"nullable"}]}},
+	            "content":{"key":{"element":"string","content":"cors"},"value":{"element":"Cors"}}},
+	           {"element":"member",
+	            "meta":{"description":{"element":"string","content":"[readOnly] [deprecated] Legacy timestamp."}},
+	            "attributes":{"typeAttributes":{"element":"array","content":[{"element":"string","content":"required"}]}},
+	            "content":{"key":{"element":"string","content":"updatedAt"},"value":{"element":"string"}}}
+	         ]}}
+	     ]}
+	  ]}]
+	}`)
+
+	doc, err := RefractToOAS(refract)
+	if err != nil {
+		t.Fatalf("RefractToOAS: %v", err)
+	}
+	svc := doc.Components.Schemas["Service"]
+	if svc == nil {
+		t.Fatal("Service schema missing")
+	}
+
+	id := svc.Properties["id"]
+	if id == nil {
+		t.Fatal("id property missing")
+	}
+	if !id.ReadOnly {
+		t.Error("id: expected readOnly=true from [readOnly] prefix")
+	}
+	if id.Description != "Unique identifier of the service." {
+		t.Errorf("id: prefix should be stripped from description, got %q", id.Description)
+	}
+
+	cors := svc.Properties["cors"]
+	if cors == nil {
+		t.Fatal("cors property missing")
+	}
+	if !cors.Deprecated {
+		t.Error("cors: expected deprecated=true from [deprecated] prefix")
+	}
+	if !cors.Nullable {
+		t.Error("cors: expected nullable=true from type attribute")
+	}
+	if cors.Description != "Use the cors plugin instead." {
+		t.Errorf("cors: prefix should be stripped, got %q", cors.Description)
+	}
+
+	updatedAt := svc.Properties["updatedAt"]
+	if updatedAt == nil {
+		t.Fatal("updatedAt property missing")
+	}
+	if !updatedAt.ReadOnly {
+		t.Error("updatedAt: expected readOnly=true")
+	}
+	if !updatedAt.Deprecated {
+		t.Error("updatedAt: expected deprecated=true from [deprecated] prefix")
+	}
+	if updatedAt.Description != "Legacy timestamp." {
+		t.Errorf("updatedAt: both prefixes should be stripped, got %q", updatedAt.Description)
 	}
 }

@@ -229,6 +229,9 @@ the source-side syntax.
 | `+ Meta → ReadOnly: true` (member)    | `…/schema/readOnly`                                    | 0..1          |
 | `+ Meta → WriteOnly: true` (member)   | `…/schema/writeOnly`                                   | 0..1          |
 | `+ Meta → Deprecated: true` (member)  | `…/schema/deprecated`                                  | 0..1          |
+| `[readOnly]` desc prefix (member)     | `…/schema/readOnly`                                    | 0..1          |
+| `[writeOnly]` desc prefix (member)    | `…/schema/writeOnly`                                   | 0..1          |
+| `[deprecated]` desc prefix (member)   | `…/schema/deprecated`                                  | 0..1          |
 | `+ Meta → Const: val` (member)        | `…/schema/const` (3.1+) or `enum:[val]` (3.0)         | 0..1          |
 | `schema.example` (all sources)        | `example` (3.0) or `examples:[…]` (3.1+, auto)        | auto          |
 | `# Data Structures`                   | `/components/schemas/<Name>`                           | 0..n          |
