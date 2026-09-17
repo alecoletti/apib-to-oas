@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/alecoletti/apib-to-oas/compare/v1.6.0...v1.6.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* **convert:** apply fixed and additionalProperties in recovered MSON members ([#18](https://github.com/alecoletti/apib-to-oas/issues/18)) ([6b15b50](https://github.com/alecoletti/apib-to-oas/commit/6b15b50e48d2e1f774adf7de36327e5f5291f55d))
+
 ## [1.6.0](https://github.com/alecoletti/apib-to-oas/compare/v1.5.2...v1.6.0) (2026-08-18)
 
 
