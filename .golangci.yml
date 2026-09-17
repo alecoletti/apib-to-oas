@@ -126,7 +126,8 @@ formatters:
         - github.com/alecoletti/apib-to-oas
     gofumpt:
       module-path: github.com/alecoletti/apib-to-oas
-      extra-rules: true
+      extra:
+        group-params: true
   exclusions:
     generated: lax
     paths:

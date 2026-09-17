@@ -1,6 +1,7 @@
 package convert
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -172,6 +173,25 @@ func TestApplyTypeAttributes_DeprecatedOnObject(t *testing.T) {
 	applyTypeAttributes(s, classesList{Content: []stringValue{{Content: "deprecated"}}})
 	if !s.Deprecated {
 		t.Error("expected deprecated=true on object schema with (deprecated) type attribute")
+	}
+}
+
+func TestExtractConstraintsFromDescription_AdditionalProperties(t *testing.T) {
+	desc := "Localised display values keyed by locale code.\n\n" +
+		"+ Meta\n" +
+		"    + AdditionalProperties: string\n"
+	s := &oas.Schema{Type: "object"}
+	cleaned := extractConstraintsFromDescription(s, desc)
+
+	if cleaned != "Localised display values keyed by locale code." {
+		t.Fatalf("unexpected cleaned description: %q", cleaned)
+	}
+	propSchema, ok := s.AdditionalProperties.(*oas.Schema)
+	if !ok || propSchema == nil {
+		t.Fatalf("expected object additionalProperties schema, got %#v", s.AdditionalProperties)
+	}
+	if propSchema.Type != "string" {
+		t.Fatalf("additionalProperties.type = %q, want %q", propSchema.Type, "string")
 	}
 }
 
@@ -529,6 +549,45 @@ func TestRecoverMembersFromDescription_FlatMembers(t *testing.T) {
 	}
 	if len(s.Required) != 1 || s.Required[0] != "url" {
 		t.Errorf("required = %v, want [url]", s.Required)
+	}
+}
+
+func TestRecoverMembersFromDescription_FixedAndAdditionalProperties(t *testing.T) {
+	desc := "Plugin config.\n\n" +
+		"+ enabled: true (boolean, required, fixed) - Whether the plugin is active.\n" +
+		"+ config (object, optional) - [additionalProperties:string] Key-value configuration."
+	s := &oas.Schema{Type: "object", Description: desc}
+	r := newSchemaResolver(nil)
+	r.recoverMembersFromDescription(s, map[string]bool{})
+
+	enabled := s.Properties["enabled"]
+	if enabled == nil {
+		t.Fatal("enabled property missing")
+	}
+	if enabled.Type != "boolean" {
+		t.Fatalf("enabled.type = %q, want boolean", enabled.Type)
+	}
+	if len(enabled.Enum) != 1 || enabled.Enum[0] != true {
+		t.Fatalf("enabled.enum = %v, want [true]", enabled.Enum)
+	}
+
+	config := s.Properties["config"]
+	if config == nil {
+		t.Fatal("config property missing")
+	}
+	aps, ok := config.AdditionalProperties.(*oas.Schema)
+	if !ok || aps == nil {
+		t.Fatalf("config.additionalProperties = %#v, want schema(type=string)", config.AdditionalProperties)
+	}
+	if aps.Type != "string" {
+		t.Fatalf("config.additionalProperties.type = %q, want string", aps.Type)
+	}
+	if config.Description != "Key-value configuration." {
+		t.Fatalf("config.description = %q, want cleaned description", config.Description)
+	}
+
+	if !contains(s.Required, "enabled") {
+		t.Fatalf("required = %v, want enabled", s.Required)
 	}
 }
 
@@ -1065,6 +1124,116 @@ func TestSchemaPatch_DrafterParsedAsMember(t *testing.T) {
 	}
 }
 
+func TestPluginConfig_SchemaPatchProducesExpectedSchema(t *testing.T) {
+	mkString := func(s string) map[string]any {
+		return map[string]any{"element": "string", "content": s}
+	}
+	mkArray := func(items ...any) map[string]any {
+		return map[string]any{"element": "array", "content": items}
+	}
+	mkMember := func(name string, value any, attrs, meta map[string]any) map[string]any {
+		m := map[string]any{"element": "member", "content": map[string]any{"key": mkString(name), "value": value}}
+		if len(attrs) > 0 {
+			m["attributes"] = attrs
+		}
+		if len(meta) > 0 {
+			m["meta"] = meta
+		}
+		return m
+	}
+	attrs := func(values ...string) map[string]any {
+		items := make([]any, 0, len(values))
+		for _, v := range values {
+			items = append(items, mkString(v))
+		}
+		return map[string]any{"typeAttributes": mkArray(items...)}
+	}
+	refractMap := map[string]any{
+		"element": "parseResult",
+		"content": []any{
+			map[string]any{
+				"element": "category",
+				"content": []any{
+					map[string]any{
+						"element": "category",
+						"meta":    map[string]any{"classes": mkArray(mkString("dataStructures"))},
+						"content": []any{
+							map[string]any{
+								"element": "dataStructure",
+								"content": map[string]any{
+									"element":    "object",
+									"attributes": map[string]any{"typeAttributes": mkArray(mkString("fixedType"))},
+									"meta":       map[string]any{"id": mkString("PluginConfig")},
+									"content": []any{
+										mkMember("name", map[string]any{"element": "enum", "content": mkString("rate-limit"), "attributes": map[string]any{"enumerations": mkArray(
+											mkString("rate-limit"), mkString("inject-headers"), mkString("max-request-size"), mkString("deprecation"),
+											mkString("strip-response-headers"), mkString("add-response-headers"), mkString("redirect"), mkString("rewrite-path"),
+											mkString("timeout"), mkString("strip-request-headers"), mkString("allow-list"), mkString("cors"),
+										)}}, attrs("required"), nil),
+										mkMember("enabled", map[string]any{"element": "boolean", "content": true}, attrs("required", "fixed"), map[string]any{"description": mkString("Whether the plugin is active.")}),
+										mkMember("config", map[string]any{"element": "object", "content": []any{}}, nil, map[string]any{"description": mkString("[additionalProperties:string] Key-value configuration passed to the plugin. Allowed keys depend on the chosen plugin.")}),
+										mkMember("Schema Patch", map[string]any{"element": "string"}, nil, map[string]any{"description": mkString("{\"if\":{},\"then\":{\"properties\":{\"enabled\":{\"const\":true},\"config\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"string\"}}}}}")}),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	refract, err := json.Marshal(refractMap)
+	if err != nil {
+		t.Fatalf("marshal refract fixture: %v", err)
+	}
+
+	doc, err := RefractToOASWithOptions(refract, Options{OASVersion: "3.1"})
+	if err != nil {
+		t.Fatalf("RefractToOASWithOptions: %v", err)
+	}
+	plugin := doc.Components.Schemas["PluginConfig"]
+	if plugin == nil {
+		t.Fatal("PluginConfig schema missing")
+	}
+	if plugin.Type != "object" {
+		t.Fatalf("PluginConfig.type = %q, want object", plugin.Type)
+	}
+	if plugin.AdditionalProperties != false {
+		t.Fatalf("PluginConfig.additionalProperties = %v, want false", plugin.AdditionalProperties)
+	}
+	if !contains(plugin.Required, "name") || !contains(plugin.Required, "enabled") {
+		t.Fatalf("PluginConfig.required = %v, want [name enabled]", plugin.Required)
+	}
+	if plugin.Then == nil {
+		t.Fatal("PluginConfig.then missing")
+	}
+	if got := plugin.Then.Properties["enabled"]; got == nil {
+		t.Fatal("then.properties.enabled missing")
+	} else if got.Const != true {
+		t.Fatalf("then.properties.enabled.const = %v, want true", got.Const)
+	}
+	if got := plugin.Then.Properties["config"]; got == nil {
+		t.Fatal("then.properties.config missing")
+	} else {
+		if got.Type != "object" {
+			t.Fatalf("then.properties.config.type = %q, want object", got.Type)
+		}
+		ap, ok := got.AdditionalProperties.(map[string]any)
+		if !ok {
+			t.Fatalf("then.properties.config.additionalProperties = %T, want object schema", got.AdditionalProperties)
+		}
+		if ap["type"] != "string" {
+			t.Fatalf("then.properties.config.additionalProperties.type = %v, want string", ap["type"])
+		}
+	}
+
+	pretty, err := json.MarshalIndent(plugin, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal plugin schema: %v", err)
+	}
+	t.Logf("PluginConfig OpenAPI schema:\n%s", pretty)
+}
+
 // TestRecoverMembersNested guards the bug where Drafter dumps complex MSON
 // (prose + members) into meta.description and recoverMembersFromDescription
 // used to flatten indented sub-members to sibling properties instead of
@@ -1176,19 +1345,21 @@ func TestParseSchemaDescPrefix(t *testing.T) {
 		deprecated bool
 		readOnly   bool
 		writeOnly  bool
+		addlProps  string
 	}{
-		{"[deprecated] Use newField instead.", "Use newField instead.", true, false, false},
-		{"[readOnly] Server-assigned.", "Server-assigned.", false, true, false},
-		{"[read-only] Server-assigned.", "Server-assigned.", false, true, false},
-		{"[writeOnly] Password field.", "Password field.", false, false, true},
-		{"[write-only] Password field.", "Password field.", false, false, true},
-		{"[readOnly] [deprecated] Old id.", "Old id.", true, true, false},
-		{"[deprecated] [readOnly] Old id.", "Old id.", true, true, false},
-		{"[DEPRECATED] Case insensitive.", "Case insensitive.", true, false, false},
-		{"No prefix here.", "No prefix here.", false, false, false},
-		{"[unknown] Stays in description.", "[unknown] Stays in description.", false, false, false},
-		{"  [readOnly]   Leading spaces.", "Leading spaces.", false, true, false},
-		{"", "", false, false, false},
+		{"[deprecated] Use newField instead.", "Use newField instead.", true, false, false, ""},
+		{"[readOnly] Server-assigned.", "Server-assigned.", false, true, false, ""},
+		{"[read-only] Server-assigned.", "Server-assigned.", false, true, false, ""},
+		{"[writeOnly] Password field.", "Password field.", false, false, true, ""},
+		{"[write-only] Password field.", "Password field.", false, false, true, ""},
+		{"[readOnly] [deprecated] Old id.", "Old id.", true, true, false, ""},
+		{"[deprecated] [readOnly] Old id.", "Old id.", true, true, false, ""},
+		{"[additionalProperties:string] Locale map.", "Locale map.", false, false, false, "string"},
+		{"[DEPRECATED] Case insensitive.", "Case insensitive.", true, false, false, ""},
+		{"No prefix here.", "No prefix here.", false, false, false, ""},
+		{"[unknown] Stays in description.", "[unknown] Stays in description.", false, false, false, ""},
+		{"  [readOnly]   Leading spaces.", "Leading spaces.", false, true, false, ""},
+		{"", "", false, false, false, ""},
 	}
 	for _, tc := range cases {
 		got, flags := parseSchemaDescPrefix(tc.input)
@@ -1203,6 +1374,9 @@ func TestParseSchemaDescPrefix(t *testing.T) {
 		}
 		if flags.WriteOnly != tc.writeOnly {
 			t.Errorf("parseSchemaDescPrefix(%q) writeOnly = %v, want %v", tc.input, flags.WriteOnly, tc.writeOnly)
+		}
+		if flags.AdditionalProperties != tc.addlProps {
+			t.Errorf("parseSchemaDescPrefix(%q) additionalProperties = %q, want %q", tc.input, flags.AdditionalProperties, tc.addlProps)
 		}
 	}
 }

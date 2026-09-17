@@ -453,7 +453,6 @@ func TestTagKind_OAS32_Emitted(t *testing.T) {
 	}
 }
 
-
 func TestNullableRef_OAS31_PreservesAnnotations(t *testing.T) {
 	doc, err := RefractToOASWithOptions(nullableRefFixture(), Options{OASVersion: "3.1"})
 	if err != nil {

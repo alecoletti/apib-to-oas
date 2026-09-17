@@ -105,3 +105,6 @@ logs/
 
 # Direnv
 .envrc
+
+# graphify-rs knowledge-graph output (regenerate with graphify-rs build)
+graphify-rs-out/
