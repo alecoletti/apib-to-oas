@@ -58,6 +58,9 @@ type metaBlock struct {
 	MinItems         *int
 	MaxItems         *int
 	UniqueItems      *bool
+	// AdditionalProperties controls map-like object values. Accepts either a
+	// boolean or a simple schema type name such as "string".
+	AdditionalProperties any
 	// Lifecycle / access annotations (Blueprint+ §14).
 	ReadOnly  *bool
 	WriteOnly *bool
@@ -75,7 +78,7 @@ func (m *metaBlock) isEmpty() bool {
 			m.Minimum == nil && m.Maximum == nil &&
 			m.ExclusiveMinimum == nil && m.ExclusiveMaximum == nil &&
 			m.MultipleOf == nil && m.MinItems == nil && m.MaxItems == nil &&
-			m.UniqueItems == nil &&
+			m.UniqueItems == nil && m.AdditionalProperties == nil &&
 			m.ReadOnly == nil && m.WriteOnly == nil && m.Const == nil)
 }
 
@@ -416,6 +419,8 @@ func applyMetaKey(mb *metaBlock, key, val string) {
 		if b, ok := parseBoolish(val); ok {
 			mb.UniqueItems = boolPtr(b)
 		}
+	case "additionalproperties":
+		mb.AdditionalProperties = parseAdditionalPropertiesValue(val)
 
 	// ── Lifecycle / access annotations (Blueprint+ §14) ──────────────────
 	case "readonly":
@@ -477,6 +482,22 @@ func parseBoolish(s string) (bool, bool) {
 		return b, true
 	}
 	return false, false
+}
+
+func parseAdditionalPropertiesValue(val string) any {
+	trimmed := strings.Trim(strings.TrimSpace(val), "`")
+	if trimmed == "" {
+		return nil
+	}
+	if b, ok := parseBoolish(trimmed); ok {
+		return b
+	}
+	switch strings.ToLower(trimmed) {
+	case typeString, typeNumber, typeInteger, typeBoolean, typeObject, typeArray:
+		return &oas.Schema{Type: strings.ToLower(trimmed)}
+	default:
+		return &oas.Schema{Ref: "#/components/schemas/" + trimmed}
+	}
 }
 
 // normaliseExtensionKey applies the kebab/CamelCase/snake folding rule
@@ -578,6 +599,9 @@ func mergeMetaBlocks(dst, src *metaBlock) {
 	}
 	if dst.UniqueItems == nil {
 		dst.UniqueItems = src.UniqueItems
+	}
+	if dst.AdditionalProperties == nil {
+		dst.AdditionalProperties = src.AdditionalProperties
 	}
 }
 
@@ -763,6 +787,9 @@ func applyMetaToSchema(s *oas.Schema, mb *metaBlock) {
 	}
 	if mb.UniqueItems != nil && !s.UniqueItems {
 		s.UniqueItems = *mb.UniqueItems
+	}
+	if mb.AdditionalProperties != nil && s.AdditionalProperties == nil {
+		s.AdditionalProperties = mb.AdditionalProperties
 	}
 	// Lifecycle / access annotations.
 	if mb.ReadOnly != nil && !s.ReadOnly {

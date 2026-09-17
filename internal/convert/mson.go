@@ -3,6 +3,7 @@ package convert
 import (
 	"encoding/json"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/alecoletti/apib-to-oas/internal/oas"
@@ -83,13 +84,13 @@ func (r *schemaResolver) schemaForVisited(el *element, visited map[string]bool) 
 		return nil
 	}
 	switch el.Element {
-	case "object":
+	case typeObject:
 		return r.objectSchema(el, visited)
-	case "array":
+	case typeArray:
 		return r.arraySchema(el, visited)
 	case "enum":
 		return r.enumSchema(el, visited)
-	case "string", "number", "boolean":
+	case typeString, typeNumber, typeBoolean:
 		s := &oas.Schema{Type: msonNumberOASType(el)}
 		s.Description = extractConstraintsFromDescription(s, el.description())
 		return s
@@ -106,7 +107,7 @@ func (r *schemaResolver) schemaForVisited(el *element, visited map[string]bool) 
 			}
 		}
 		if visited[el.Element] {
-			return &oas.Schema{Type: "object", Description: "circular reference: " + el.Element}
+			return &oas.Schema{Type: typeObject, Description: "circular reference: " + el.Element}
 		}
 		def, ok := r.registry[el.Element]
 		if !ok {
@@ -116,7 +117,7 @@ func (r *schemaResolver) schemaForVisited(el *element, visited map[string]bool) 
 				r.seenMissing[el.Element] = true
 				r.diag.Error(CodeUndefinedType, "undefined named type referenced: "+el.Element)
 			}
-			return &oas.Schema{Type: "object", Description: el.description()}
+			return &oas.Schema{Type: typeObject, Description: el.description()}
 		}
 		visited[el.Element] = true
 		out := r.schemaForVisited(def, visited)
@@ -134,7 +135,7 @@ func (r *schemaResolver) schemaForVisited(el *element, visited map[string]bool) 
 // member-level MSON type-attributes (required / nullable / fixed → enum
 // of one / readOnly / writeOnly / default value / format inference).
 func (r *schemaResolver) objectSchema(el *element, visited map[string]bool) *oas.Schema {
-	s := &oas.Schema{Type: "object"}
+	s := &oas.Schema{Type: typeObject}
 	s.Description = extractConstraintsFromDescription(s, el.description())
 	props := map[string]*oas.Schema{}
 	var required []string
@@ -219,7 +220,7 @@ func (r *schemaResolver) decodeMemberSchema(c *element, visited map[string]bool)
 	}
 	valSchema := r.schemaForVisited(&m.Content.Value, visited)
 	if valSchema == nil {
-		valSchema = &oas.Schema{Type: "string"}
+		valSchema = &oas.Schema{Type: typeString}
 	}
 	// Member-level description (from `- name (type) - description`)
 	// trumps any inherited from the value type. Description-prefix flags
@@ -239,6 +240,9 @@ func (r *schemaResolver) decodeMemberSchema(c *element, visited map[string]bool)
 		}
 		if flags.WriteOnly {
 			valSchema.WriteOnly = true
+		}
+		if flags.AdditionalProperties != "" && valSchema.AdditionalProperties == nil {
+			valSchema.AdditionalProperties = parseAdditionalPropertiesValue(flags.AdditionalProperties)
 		}
 		valSchema.Description = extractConstraintsFromDescription(valSchema, d)
 	}
@@ -273,7 +277,7 @@ func (r *schemaResolver) decodeSelectSchema(c *element, visited map[string]bool)
 			continue
 		}
 		optSchema := &oas.Schema{
-			Type:       "object",
+			Type:       typeObject,
 			Properties: map[string]*oas.Schema{},
 		}
 		// Carry option title when Drafter populates meta.title on the option
@@ -295,7 +299,7 @@ func (r *schemaResolver) decodeSelectSchema(c *element, visited map[string]bool)
 			}
 			mSchema := r.schemaForVisited(&mem.Content.Value, visited)
 			if mSchema == nil {
-				mSchema = &oas.Schema{Type: "string"}
+				mSchema = &oas.Schema{Type: typeString}
 			}
 			if d := mem.Meta.Description.Content; d != "" {
 				mSchema.Description = d
@@ -365,7 +369,7 @@ func (r *schemaResolver) arraySchema(el *element, visited map[string]bool) *oas.
 		items = r.schemaForVisited(&children[0], visited)
 	}
 	if items == nil {
-		items = &oas.Schema{Type: "string"}
+		items = &oas.Schema{Type: typeString}
 	}
 	s := &oas.Schema{Type: "array", Items: items}
 	s.Description = extractConstraintsFromDescription(s, el.description())
@@ -503,7 +507,7 @@ func applyTypeAttributes(s *oas.Schema, attrs classesList) {
 		case "nullable":
 			s.Nullable = true
 		case "fixed":
-			if s.Type == "object" {
+			if s.Type == typeObject {
 				// fixed on an object: close additional properties AND promote
 				// every declared property to required (MSON §3 semantics —
 				// the object must look exactly as declared).
@@ -525,7 +529,7 @@ func applyTypeAttributes(s *oas.Schema, attrs classesList) {
 				s.Enum = []any{s.Example}
 			}
 		case "fixed-type", "fixedType": // MSON source: "fixed-type"; Drafter Refract: "fixedType"
-			if s.Type == "object" {
+			if s.Type == typeObject {
 				// fixed-type on an object: close additional properties but
 				// leave individual property values unconstrained.
 				s.AdditionalProperties = false
@@ -581,7 +585,7 @@ func inferSchemaFromExample(v any) *oas.Schema {
 	case nil:
 		return nil
 	case map[string]any:
-		s := &oas.Schema{Type: "object"}
+		s := &oas.Schema{Type: typeObject}
 		if len(x) > 0 {
 			s.Properties = make(map[string]*oas.Schema, len(x))
 			for k, val := range x {
@@ -610,7 +614,7 @@ func inferSchemaFromExample(v any) *oas.Schema {
 		// the others are listed for completeness in case callers pass
 		// pre-typed values.
 		if f, ok := x.(float64); ok && f == float64(int64(f)) {
-			return &oas.Schema{Type: "integer"}
+			return &oas.Schema{Type: typeInteger}
 		}
 		return &oas.Schema{Type: "number"}
 	case string:
@@ -828,10 +832,10 @@ func collectSubLines(lines []string, i, parentIndent int) (subLines []string, ne
 // schemaForMemberWithSubs builds a schema for a recovered member, recursing
 // into sub-lines when the member is an inline object type.
 func (r *schemaResolver) schemaForMemberWithSubs(m *recoveredMember, subLines []string, visited map[string]bool) *oas.Schema {
-	if len(subLines) > 0 && (m.typeName == "object" || m.typeName == "") {
+	if len(subLines) > 0 && (m.typeName == typeObject || m.typeName == "") {
 		subProps, subReq := r.recoverMembersNested(subLines, visited)
 		if len(subProps) > 0 {
-			ps := &oas.Schema{Type: "object", Properties: subProps}
+			ps := &oas.Schema{Type: typeObject, Properties: subProps}
 			if len(subReq) > 0 {
 				ps.Required = subReq
 			}
@@ -846,7 +850,7 @@ func (r *schemaResolver) schemaForMemberWithSubs(m *recoveredMember, subLines []
 
 // oneOfOptionSchema converts a slice of recoveredMembers into an OAS object schema.
 func (r *schemaResolver) oneOfOptionSchema(members []*recoveredMember, visited map[string]bool) *oas.Schema {
-	opt := &oas.Schema{Type: "object", Properties: map[string]*oas.Schema{}}
+	opt := &oas.Schema{Type: typeObject, Properties: map[string]*oas.Schema{}}
 	for _, m := range members {
 		opt.Properties[m.name] = r.schemaForRecoveredMember(m, visited)
 		if m.required {
@@ -990,15 +994,66 @@ func (r *schemaResolver) schemaForRecoveredMember(m *recoveredMember, visited ma
 	if ps == nil {
 		ps = &oas.Schema{Type: "string"}
 	}
-	if m.desc != "" {
-		ps.Description = m.desc
+	if ex := recoveredExampleValue(m.typeName, m.example); ex != nil && ps.Example == nil {
+		ps.Example = ex
 	}
-	for _, a := range m.attrs {
-		if a == "nullable" {
-			ps.Nullable = true
+	if len(m.attrs) > 0 {
+		attrs := classesList{Element: "array", Content: make([]stringValue, 0, len(m.attrs))}
+		for _, a := range m.attrs {
+			attrs.Content = append(attrs.Content, stringValue{Element: "string", Content: a})
 		}
+		applyTypeAttributes(ps, attrs)
+	}
+	d, flags := parseSchemaDescPrefix(m.desc)
+	if flags.Deprecated {
+		ps.Deprecated = true
+	}
+	if flags.ReadOnly {
+		ps.ReadOnly = true
+	}
+	if flags.WriteOnly {
+		ps.WriteOnly = true
+	}
+	if flags.AdditionalProperties != "" && ps.AdditionalProperties == nil {
+		ps.AdditionalProperties = parseAdditionalPropertiesValue(flags.AdditionalProperties)
+	}
+	if d != "" {
+		ps.Description = extractConstraintsFromDescription(ps, d)
 	}
 	return ps
+}
+
+// recoveredExampleValue converts a recovered inline sample string into a typed
+// value suitable for schema.example so type attributes like `fixed` can lock
+// scalar schemas via enum.
+func recoveredExampleValue(typeName, raw string) any {
+	raw = strings.TrimSpace(strings.Trim(raw, "`"))
+	if raw == "" {
+		return nil
+	}
+	t := strings.ToLower(strings.TrimSpace(typeName))
+	switch t {
+	case "boolean":
+		if b, ok := parseBoolish(raw); ok {
+			return b
+		}
+		return nil
+	case "integer":
+		if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			return n
+		}
+		if f, err := strconv.ParseFloat(raw, 64); err == nil && f == float64(int64(f)) {
+			return int64(f)
+		}
+		return nil
+	case "number":
+		if f, err := strconv.ParseFloat(raw, 64); err == nil {
+			return f
+		}
+		return nil
+	default:
+		return raw
+	}
 }
 
 // resolveTypeString converts an MSON type string (e.g. "string",
@@ -1029,8 +1084,8 @@ func (r *schemaResolver) resolveTypeString(typeName string, visited map[string]b
 		return &oas.Schema{Type: "integer"}
 	case "boolean":
 		return &oas.Schema{Type: "boolean"}
-	case "object":
-		return &oas.Schema{Type: "object"}
+	case typeObject:
+		return &oas.Schema{Type: typeObject}
 	}
 
 	// Named type reference: emit $ref when in refs mode, otherwise resolve
@@ -1041,7 +1096,7 @@ func (r *schemaResolver) resolveTypeString(typeName string, visited map[string]b
 	}
 	if def, ok := r.registry[typeName]; ok {
 		if visited[typeName] {
-			return &oas.Schema{Type: "object", Description: "circular reference: " + typeName}
+			return &oas.Schema{Type: typeObject, Description: "circular reference: " + typeName}
 		}
 		visited[typeName] = true
 		out := r.schemaForVisited(def, visited)
@@ -1050,7 +1105,7 @@ func (r *schemaResolver) resolveTypeString(typeName string, visited map[string]b
 	}
 
 	// Unknown type — fall back to object
-	return &oas.Schema{Type: "object"}
+	return &oas.Schema{Type: typeObject}
 }
 
 // tryExtractMetaFromArrayChild inspects an array child element that Drafter
@@ -1069,7 +1124,7 @@ func tryExtractMetaFromArrayChild(el *element) *metaBlock {
 		return nil
 	}
 	// Only objects can carry constraint properties.
-	if el.Element != "object" {
+	if el.Element != typeObject {
 		return nil
 	}
 	members := el.contentArray()
@@ -1111,9 +1166,10 @@ func tryExtractMetaFromArrayChild(el *element) *metaBlock {
 // schemaDescFlags holds schema boolean flags extracted from description
 // prefixes. See parseSchemaDescPrefix.
 type schemaDescFlags struct {
-	Deprecated bool
-	ReadOnly   bool
-	WriteOnly  bool
+	Deprecated           bool
+	ReadOnly             bool
+	WriteOnly            bool
+	AdditionalProperties string
 }
 
 // parseSchemaDescPrefix scans the leading bracket tokens of a MSON member
@@ -1154,6 +1210,10 @@ func parseSchemaDescPrefix(s string) (string, schemaDescFlags) {
 		case "writeonly", "write-only":
 			flags.WriteOnly = true
 		default:
+			if strings.HasPrefix(word, "additionalproperties:") {
+				flags.AdditionalProperties = strings.TrimSpace(t[len("[additionalProperties:"):end])
+				break
+			}
 			// Unrecognised bracket token — stop scanning, leave in string.
 			return strings.TrimLeft(s, " \t"), flags
 		}

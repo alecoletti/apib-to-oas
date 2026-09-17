@@ -1115,7 +1115,7 @@ func addResource(res *element, ctx walkCtx, doc *oas.Document, resolver *schemaR
 		}
 		resourceQueryParams = append(resourceQueryParams, &oas.Parameter{
 			Name: qn, In: "query",
-			Schema: &oas.Schema{Type: "string"},
+			Schema: &oas.Schema{Type: typeString},
 		})
 	}
 
@@ -1588,7 +1588,7 @@ func applyHeaders(resp *oas.Response, headers headersValue) {
 			Description: strings.TrimSpace(m.Meta.Description.Content),
 			Required:    required,
 			Deprecated:  deprecated,
-			Schema:      &oas.Schema{Type: "string"},
+			Schema:      &oas.Schema{Type: typeString},
 		}
 		if example != "" {
 			h.Schema.Example = example
@@ -1646,7 +1646,7 @@ func requestHeaderParams(headers headersValue) []*oas.Parameter {
 			Required:    required,
 			Deprecated:  deprecated,
 			Description: strings.TrimSpace(m.Meta.Description.Content),
-			Schema:      &oas.Schema{Type: "string"},
+			Schema:      &oas.Schema{Type: typeString},
 		}
 		if example != "" {
 			p.Schema.Example = example
@@ -1844,14 +1844,14 @@ func paramsFromHrefVariables(hv hrefVariablesValue, defaultIn, path string, diag
 			// meta.title may say "number" even when the author wrote
 			// "integer". Re-derive the intent from the example: if it is a
 			// whole number promote the schema type to "integer".
-			if oasType == "number" {
+			if oasType == typeNumber {
 				if f, ok := ex.(float64); ok && f == float64(int64(f)) {
-					schema.Type = "integer"
+					schema.Type = typeInteger
 				}
 			}
 			if f := inferFormat(schema); f != "" {
 				schema.Format = f
-			} else if schema.Type == "array" && schema.Items != nil && schema.Items.Format == "" {
+			} else if schema.Type == typeArray && schema.Items != nil && schema.Items.Format == "" {
 				// For array[string] parameters (e.g. `author: editor@example.com
 				// (array[string])`), the top-level schema is type "array" so
 				// inferFormat skips it. Try to derive the format for the items
@@ -1896,16 +1896,16 @@ func paramsFromHrefVariables(hv hrefVariablesValue, defaultIn, path string, diag
 // msonTypeToOAS maps an MSON primitive type to its closest OAS type.
 func msonTypeToOAS(t string) string {
 	switch strings.ToLower(strings.TrimSpace(t)) {
-	case "number":
-		return "number"
-	case "integer":
-		return "integer"
-	case "boolean":
-		return "boolean"
-	case "", "string":
-		return "string"
+	case typeNumber:
+		return typeNumber
+	case typeInteger:
+		return typeInteger
+	case typeBoolean:
+		return typeBoolean
+	case "", typeString:
+		return typeString
 	default:
-		return "string"
+		return typeString
 	}
 }
 

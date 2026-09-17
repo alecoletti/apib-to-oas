@@ -264,7 +264,7 @@ func (e *element) dataStructureInner() *element {
 // and it carries no defining content of its own.
 func (e *element) isReference() bool {
 	switch e.Element {
-	case "", "string", "number", "boolean", "array", "object", "enum",
+	case "", typeString, typeNumber, typeBoolean, typeArray, typeObject, typeEnum,
 		"member", "category", "resource", "transition", "httpTransaction",
 		"httpRequest", "httpResponse", "httpHeaders", "asset", "copy",
 		"dataStructure", "annotation", "sourceMap", "hrefVariables":
@@ -287,7 +287,7 @@ func (e *element) severity() string {
 func (e *element) enumerationStrings() []string {
 	var out []string
 	for _, ev := range e.Attributes.Enumerations.Content {
-		if ev.Element == "string" {
+		if ev.Element == typeString {
 			out = append(out, ev.contentString())
 		}
 	}
@@ -302,7 +302,7 @@ func (e *element) enumerationStrings() []string {
 // Used to emit `x-enum-descriptions[]` per Blueprint+ §11.2.
 func (e *element) enumerationStringsWithDescriptions() (values, descs []string) {
 	for _, ev := range e.Attributes.Enumerations.Content {
-		if ev.Element != "string" {
+		if ev.Element != typeString {
 			continue
 		}
 		values = append(values, ev.contentString())

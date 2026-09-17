@@ -61,6 +61,25 @@ Pipeline is a strict three-stage flow, one package per stage:
   - Companion suites: `anchors_test.go` (anchor promotion + `applyVersion`), `schema_test.go` (format inference, type attributes, annotations), `version_test.go` (metadata-driven `info.version` + CLI override), `attributes_test.go` (resource/action `+ Attributes` defaults + `+ Schema` precedence), `features_test.go` (multi-transaction examples, sidecar security, webhooks routing on 3.1, hierarchical tags on 3.2), `schemas_test.go` (e2e schemas demo), `bplus_v01_test.go` (Tier-A v0.1 batch: doc-level `SECURITY:`, group-level `+ Meta` extensions, response description override, E005 duplicate operationId), `appendix_c_test.go` (full Appendix C conformance walk — drafter-required, skipped without embedded binary).
 - When you change conversion output, regenerate the golden files: `go run ./cmd/apib-to-oas convert testdata/polls.apib > testdata/polls.expected.yaml` and `... --format json > testdata/polls.expected.json`. If you change the input apib, also regenerate `testdata/polls.refract.json` via the local drafter binary.
 
+## Codebase Map (graphify-rs)
+Structural snapshot from `graphify-rs build --path . --no-llm` (third_party excluded via `.graphifyignore`): 622 nodes / 890 edges / 46 communities across `internal/` + `cmd/`. Highest-connectivity files (god nodes), which matches the pipeline above:
+
+| File | Degree | Role |
+|------|--------|------|
+| `internal/convert/convert.go` | 77 | Core AST→OAS walker, hub of the whole conversion package |
+| `internal/convert/schema_test.go` | 42 | Largest test surface (format/type-attribute coverage) |
+| `internal/convert/mson.go` | 40 | MSON → JSON Schema resolver |
+| `internal/convert/bplus.go` | 37 | Blueprint+ `+ Meta` extraction/application |
+| `internal/convert/refract.go` | 35 | Typed Refract/API-Elements shapes |
+| `internal/oas/oas.go` | 34 | OAS document model + extension marshalling |
+| `internal/cli/cli.go` | 30 | Cobra command wiring |
+| `internal/convert/marshal.go` | 23 | YAML/JSON emitter |
+| `internal/drafter/drafter.go` | 21 | Embedded-binary exec integration |
+
+Notable call chains surfaced as cross-file "surprising connections": `oas.MarshalJSON → marshalWithExtensions` (extension splicing) and the `marshal.go` YAML chain `jsonToYAML → emitValue → emitArray/writeScalarString → writeIndent`. These confirm the two invariants above: extensions flow through custom `MarshalJSON`, and there is no YAML dependency — everything routes through the hand-rolled emitter in `marshal.go`.
+
+Regenerate with `graphify-rs build --path . --output graphify-rs-out --no-llm` after structural changes (new packages, moved files); rerun `graphify-rs query "<question>" --graph graphify-rs-out/graph.json` to explore.
+
 ## API Blueprint Reference
 - Full Format 1A9 spec lives in `specs/apib.md`. Consult it before adding new mappings — section names there map directly to Refract `element` values produced by Drafter (`category`, `resource`, `transition`, `httpRequest`, `httpResponse`, `dataStructure`, `asset`, `copy`, …).
 

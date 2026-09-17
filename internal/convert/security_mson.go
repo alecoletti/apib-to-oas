@@ -74,7 +74,7 @@ func extractMSONSecuritySchemes(reg map[string]*element, diag *Diagnostics) (map
 			break
 		}
 	}
-	if container == nil || container.Element != "object" {
+	if container == nil || container.Element != typeObject {
 		return nil, ""
 	}
 	out := map[string]*oas.SecurityScheme{}
@@ -115,7 +115,7 @@ func extractMSONSecuritySchemes(reg map[string]*element, diag *Diagnostics) (map
 // Returns nil and emits a diagnostic when `type` is missing/unknown or
 // when the type-specific required fields are not satisfied.
 func decodeSecurityScheme(name string, val *element, diag *Diagnostics) *oas.SecurityScheme {
-	if val == nil || val.Element != "object" {
+	if val == nil || val.Element != typeObject {
 		diag.Error(CodeMissingSchemeField,
 			"security scheme '"+name+"' must be an MSON `(object)`")
 		return nil
@@ -232,7 +232,7 @@ func decodeOAuthFlows(schemeName string, schemeVal *element, diag *Diagnostics) 
 // every flow except `implicit`; authorizationUrl is required for
 // `implicit` and `authorizationCode` per the OAS spec.
 func decodeOAuthFlow(schemeName, flowName string, val *element, diag *Diagnostics) *oas.OAuthFlow {
-	if val == nil || val.Element != "object" {
+	if val == nil || val.Element != typeObject {
 		diag.Error(CodeMissingSchemeField,
 			"security scheme '"+schemeName+"' flow '"+flowName+"' must be an MSON `(object)`")
 		return nil
@@ -294,7 +294,7 @@ func decodeStringMembers(obj *element) map[string]string {
 		// Take a string from either the `value`'s content (typed
 		// scalar) or the member-level description (used by Drafter
 		// for `+ key: long-prose-value` shapes - see the scopes case).
-		if m.Content.Value.Element == "string" || m.Content.Value.Element == "number" || m.Content.Value.Element == "boolean" {
+		if m.Content.Value.Element == typeString || m.Content.Value.Element == typeNumber || m.Content.Value.Element == typeBoolean {
 			if s := m.Content.Value.contentString(); s != "" {
 				out[key] = s
 				continue
@@ -326,7 +326,7 @@ func findObjectMember(obj *element, name string) *element {
 			continue
 		}
 		v := m.Content.Value
-		if v.Element != "object" {
+		if v.Element != typeObject {
 			return nil
 		}
 		// decodeMember returned a copy - return a heap pointer to it.
